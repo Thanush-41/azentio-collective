@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { chooseWorkspace } from "./helpers";
 
-for (const [path, heading] of [["/solutions", /Governed intelligence/], ["/insights", /Release notes/], ["/media", /recordings/], ["/about", /Intelligence built with/], ["/register", /Create an account/]] as const) {
+for (const [path, heading] of [["/solutions", /Governed intelligence/], ["/insights", /Release notes/], ["/media", /recordings/], ["/about", /Intelligence built with/], ["/lab", /Where Azentio experiments/], ["/live", /Public sessions/], ["/register", /Create an account/]] as const) {
   test(`public route ${path} renders without the workspace chooser`, async ({ page }) => {
     await page.goto(path);
     await expect(page.getByRole("heading", { name: heading })).toBeVisible();

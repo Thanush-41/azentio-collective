@@ -1,0 +1,22 @@
+name: Deployed smoke test
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Deployed URL
+        default: https://azentio-collective.vercel.app
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Staff flows run only when STAFF_EMAIL / STAFF_PASSWORD repository secrets (a verified allow-listed account) exist.
+      - run: node scripts/smoke-deployed.mjs
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          STAFF_EMAIL: ${{ secrets.STAFF_EMAIL }}
+          STAFF_PASSWORD: ${{ secrets.STAFF_PASSWORD }}

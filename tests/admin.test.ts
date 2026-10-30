@@ -70,6 +70,25 @@ describe("content audiences and publisher permission", () => {
   });
 });
 
+describe("QA-09 / QA-10", () => {
+  it("comments are unreadable once the parent publication is reported or withdrawn", async () => {
+    await learn.seedScenario(db, moderator);
+    const [pub] = (await learn.getLearning(db, employee)).publications;
+    await adm.addComment(db, meridian, pub.id, "Matches what we see");
+    expect(await adm.listComments(db, northstar, pub.id)).toHaveLength(1);
+    await obs.reportPublication(db, northstar, pub.id, "looks identifying");
+    await expect(adm.listComments(db, northstar, pub.id)).rejects.toSatisfy(e => code(e) === 404);
+    await expect(adm.addComment(db, northstar, pub.id, "more")).rejects.toSatisfy(e => code(e) === 404);
+  });
+  it("media links are accepted only on recordings", async () => {
+    const base = { audience: "employee", title: "Session", body: "Body of the session.", mediaUrl: "https://example.com/v" };
+    await expect(adm.createContent(db, publisher, { ...base, kind: "broadcast" }, true)).rejects.toSatisfy(e => code(e) === 400);
+    await adm.createContent(db, publisher, { ...base, kind: "recording" }, true);
+    expect((await adm.listContent(db, employee)).find(i => i.kind === "recording")?.mediaUrl).toBe("https://example.com/v");
+    expect((await adm.listContent(db, meridian)).some(i => i.kind === "recording")).toBe(false);
+  });
+});
+
 describe("bookmarks, comments, lab", () => {
   it("bookmarks are per user; comments show role labels only; teams and experiments work", async () => {
     await learn.seedScenario(db, moderator);

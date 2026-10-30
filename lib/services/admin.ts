@@ -66,6 +66,7 @@ type ContentInput = { kind: string; audience: string; orgId?: string; mediaUrl?:
 export async function createContent(db: Db, actor: Actor, i: ContentInput, publish: boolean) {
   requirePermission(actor, "content:publish");
   if (i.orgId && i.audience !== "client") throw new ApiError("Organisation-specific content must target the client audience", 400);
+  if (i.mediaUrl && i.kind !== "recording") throw new ApiError("A media link is only allowed on recordings", 400);
   if (i.orgId) { const [o] = await db.select().from(organizations).where(eq(organizations.id, i.orgId)).limit(1); if (!o) throw new ApiError("Organisation not found", 404); }
   const id = uid("CNT");
   await runBatch(db, [db.insert(contentItems).values({ id, kind: i.kind, audience: i.audience, orgId: i.orgId ?? null, mediaUrl: i.mediaUrl ?? null, title: i.title, body: i.body, status: publish ? "published" : "draft", authorId: actor.userId }),
@@ -118,6 +119,9 @@ export async function addComment(db: Db, actor: Actor, publicationId: string, bo
 }
 export async function listComments(db: Db, actor: Actor, publicationId: string) {
   requirePermission(actor, "social");
+  // Comments inherit the parent's current visibility: reported, withdrawn or pending-review publications expose nothing.
+  const [p] = await db.select().from(publications).where(and(eq(publications.id, publicationId), eq(publications.status, "published"))).limit(1);
+  if (!p) throw new ApiError("Publication not found", 404);
   const rows = await db.select().from(comments).where(eq(comments.publicationId, publicationId)).orderBy(comments.createdAt);
   return rows.map(r => ({ id: r.id, authorLabel: r.authorLabel, body: r.body, createdAt: r.createdAt }));
 }

@@ -52,7 +52,8 @@ export const entitlementSchema = z.object({ orgId: text(3, 60), productId: text(
 export const supportGrantSchema = z.object({ email: z.string().trim().toLowerCase().email().max(180), hours: z.number().int().min(1).max(168) });
 export const idSchema = z.object({ id: text(3, 60) });
 export const contentSchema = z.object({ kind: z.enum(["broadcast", "release_note", "knowledge", "resource", "recording"]), audience: z.enum(["public", "client", "employee"]),
-  orgId: text(3, 60).optional(), mediaUrl: z.string().trim().url().max(500).refine(u => u.startsWith("https://"), "Use an https link").optional(), title: text(3, 160), body: text(5, 4000), publish: z.boolean().default(false) });
+  orgId: text(3, 60).optional(), mediaUrl: z.string().trim().url().max(500).refine(u => u.startsWith("https://"), "Use an https link").optional(), title: text(3, 160), body: text(5, 4000), publish: z.boolean().default(false) })
+  .refine(v => !v.mediaUrl || v.kind === "recording", { message: "A media link is only allowed on recordings", path: ["mediaUrl"] });
 export const contentStatusSchema = z.object({ id: text(3, 60), status: z.enum(["published", "archived"]) });
 export const bookmarkSchema = z.object({ kind: z.enum(["publication", "search"]), ref: text(1, 400), label: text(1, 120) });
 export const commentSchema = z.object({ publicationId: text(3, 40), body: text(2, 800) });

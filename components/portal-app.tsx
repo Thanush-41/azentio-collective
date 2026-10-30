@@ -23,7 +23,7 @@ async function api(url: string, options?: RequestInit): Promise<Json> {
   return json;
 }
 
-const PUBLIC_PATHS = ["/", "/products", "/solutions", "/insights", "/media", "/about", "/connect", "/hackathon/register", "/login", "/signin", "/register", "/accept-invite"];
+const PUBLIC_PATHS = ["/", "/products", "/solutions", "/insights", "/media", "/lab", "/live", "/about", "/connect", "/hackathon/register", "/login", "/signin", "/register", "/accept-invite"];
 
 export function PortalApp() {
   const raw = usePathname(), path = raw.length > 1 ? raw.replace(/\/$/, "") : raw;
@@ -50,7 +50,8 @@ function PublicRouter({ path }: { path: string }) {
   if (path === "/accept-invite") return <AcceptInvite />;
   if (path === "/solutions") return <Solutions />;
   if (path === "/insights") return <Insights />;
-  if (path === "/media") return <Media />;
+  if (path === "/media" || path === "/live") return <Media live={path === "/live"} />;
+  if (path === "/lab") return <PublicLab />;
   if (path === "/about") return <About />;
   return <><Landing /><PublicUpdates /></>;
 }
@@ -317,7 +318,7 @@ function Updates({ session }: { session: Json }) {
   async function setStatus(id: string, status: string) { try { await api("/api/portal", { method: "POST", body: JSON.stringify({ action: "content_status", id, status }) }); load(); } catch (x) { setError((x as Error).message); } }
   return <div><WorkspaceHead eyebrow={session.role === "client" ? "Client updates" : "Employee updates"} title="Updates & knowledge" text="Release notes, broadcasts, knowledge articles and client resources — each visible only to its intended audience." />{notice && <div className="mt-6"><Alert text={notice} success /></div>}{error && <div className="mt-6"><Alert text={error} /></div>}
     <div className={`mt-7 grid gap-6 ${publisher ? "xl:grid-cols-[.8fr_1.2fr]" : ""}`}>{publisher && <form className="surface p-6" onSubmit={e => e.preventDefault()}><h2 className="text-lg font-semibold">New content</h2><div className="mt-5 grid gap-4"><SelectField label="Kind" name="kind" options={["release_note", "broadcast", "recording", "knowledge", "resource"]} /><SelectField label="Audience" name="audience" options={["client", "employee", "public"]} /><Field label="Recording link (https, recordings only)" name="mediaUrl" value="" required={false} /><Field label="Organisation id (client resources only)" name="orgId" value="" required={false} /><Field label="Title" name="title" value="" /><Field label="Body" name="body" area value="" /></div><div className="mt-5 flex gap-3"><button type="submit" onClick={e => create({ ...e, currentTarget: e.currentTarget.form!, preventDefault: () => undefined } as unknown as React.FormEvent<HTMLFormElement>, false)} className="btn-secondary">Save draft</button><button type="button" onClick={e => create({ currentTarget: e.currentTarget.form!, preventDefault: () => undefined } as unknown as React.FormEvent<HTMLFormElement>, true)} className="btn-primary">Publish</button></div></form>}
-      <section className="space-y-3">{items.length ? items.map(i => <article key={i.id} className="surface p-5"><div className="flex items-center justify-between gap-3"><span className="status">{String(i.kind).replace("_", " ")} · {i.audience}</span><span className={`status ${i.status === "published" ? "green" : ""}`}>{i.status}</span></div><h3 className="mt-3 font-bold">{i.title}</h3><p className="mt-2 text-sm leading-6 text-[#66736d]">{i.body}</p>{i.mediaUrl && <a href={i.mediaUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-sm font-bold text-[#006f58]">Open recording</a>}{publisher && <div className="mt-3 flex gap-3 text-xs font-bold">{i.status !== "published" && <button onClick={() => setStatus(i.id, "published")} className="text-[#006f58]">Publish</button>}{i.status !== "archived" && <button onClick={() => setStatus(i.id, "archived")} className="text-[#a34d43]">Archive</button>}</div>}</article>) : <Empty icon={<Bell />} title="Nothing published yet" text="New updates for your audience will appear here." />}</section></div></div>;
+      <section className="space-y-3">{items.length ? items.map(i => <article key={i.id} className="surface p-5"><div className="flex items-center justify-between gap-3"><span className="status">{String(i.kind).replace("_", " ")} · {i.audience}</span><span className={`status ${i.status === "published" ? "green" : ""}`}>{i.status}</span></div><h3 className="mt-3 font-bold">{i.title}</h3><p className="mt-2 text-sm leading-6 text-[#66736d]">{i.body}</p>{i.mediaUrl && i.kind === "recording" && <a href={i.mediaUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-sm font-bold text-[#006f58]">Open recording</a>}{publisher && <div className="mt-3 flex gap-3 text-xs font-bold">{i.status !== "published" && <button onClick={() => setStatus(i.id, "published")} className="text-[#006f58]">Publish</button>}{i.status !== "archived" && <button onClick={() => setStatus(i.id, "archived")} className="text-[#a34d43]">Archive</button>}</div>}</article>) : <Empty icon={<Bell />} title="Nothing published yet" text="New updates for your audience will appear here." />}</section></div></div>;
 }
 
 function Entitlements() {
@@ -378,14 +379,20 @@ function Insights() {
 }
 
 
-function Media() {
+function Media({ live = false }: { live?: boolean }) {
   const [items, setItems] = useState<Json[] | null>(null);
   useEffect(() => { api("/api/public-content").then(r => setItems(r.items.filter((i: Json) => i.kind === "recording"))).catch(() => setItems([])); }, []);
-  return <main className="px-5 py-16 md:px-9"><div className="mx-auto max-w-[1100px]"><SectionHead eyebrow="Media" title="Approved recordings and demonstrations." text="Public recordings only. Internal and client-only sessions are served exclusively to their configured audience." />
-    <div className="mt-10 grid gap-4 md:grid-cols-2">{(items ?? []).map(i => <article key={i.id} className="surface p-6"><span className="status"><Play size={12} /> recording</span><h3 className="mt-3 text-lg font-bold">{i.title}</h3><p className="mt-2 text-sm leading-6 text-[#66736d]">{i.body}</p>{i.mediaUrl && <a href={i.mediaUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary mt-4 inline-flex">Watch recording <ArrowRight size={14} /></a>}</article>)}</div>
+  return <main className="px-5 py-16 md:px-9"><div className="mx-auto max-w-[1100px]"><SectionHead eyebrow={live ? "Live" : "Media"} title={live ? "Public sessions and recordings." : "Approved recordings and demonstrations."} text="Public recordings only. Internal and client-only sessions are served exclusively to their configured audience." />
+    <div className="mt-10 grid gap-4 md:grid-cols-2">{(items ?? []).map(i => <article key={i.id} className="surface p-6"><span className="status"><Play size={12} /> recording</span><h3 className="mt-3 text-lg font-bold">{i.title}</h3><p className="mt-2 text-sm leading-6 text-[#66736d]">{i.body}</p>{i.mediaUrl && i.kind === "recording" && <a href={i.mediaUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary mt-4 inline-flex">Watch recording <ArrowRight size={14} /></a>}</article>)}</div>
     {items?.length === 0 && <div className="surface mt-10"><Empty icon={<Play />} title="No public recordings yet" text="Content publishers can add public recordings; employee and client sessions stay private." /></div>}</div></main>;
 }
 
+
+function PublicLab() {
+  return <main className="px-5 py-16 md:px-9"><div className="mx-auto max-w-[900px]"><SectionHead eyebrow="Lab" title="Where Azentio experiments with governed intelligence." text="Internal experiments, guided playgrounds and team spaces are available to approved Azentio employees. Nothing from the employee lab is shown publicly." />
+    <div className="mt-10 grid gap-5 md:grid-cols-2"><MiniCard icon={<FlaskConical />} label="Employees" value="Sign in to run guided experiments" /><MiniCard icon={<Building2 />} label="Clients" value="Entitled sandboxes live in your workspace" /></div>
+    <div className="mt-8 flex gap-3"><Link className="btn-primary" href="/login">Sign in <ArrowRight size={15} /></Link><Link className="btn-secondary" href="/connect">Request a demo</Link></div></div></main>;
+}
 
 function About() {
   return <main className="px-5 py-16 md:px-9"><div className="mx-auto max-w-[900px]"><SectionHead eyebrow="About" title="Intelligence built with, and for, financial institutions." text="Azentio Collective connects public discovery, employee innovation and client collaboration — with governed, consent-based learning that improves our offerings." />
