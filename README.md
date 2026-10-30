@@ -94,6 +94,8 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for diagrams. CI runs lint, uni
 
 Knowledge library (owner, review date, search, useful/needs-update feedback), hackathon team spaces (members, progress, submission link, team experiments with a lifecycle), experiments with structured feedback, saved searches (open/rename/delete), a moderator/product-owner audit trail, in-portal client support requests with staff replies, release notes/broadcasts/client resources by audience, and recordings. Recording links are never returned in lists; `/api/media/<id>` re-checks the audience on every request before redirecting. A confidential recording must still be hosted somewhere that enforces access itself (the redirect target is revealed to permitted users only).
 
+**Adding a video:** upload it to Google Drive and share it as "Anyone with the link", then sign in as a content publisher → Publish content → kind `recording`, audience `public` (shows on `/media` and `/live`), `client` or `employee`, and paste the Drive link (YouTube, Vimeo and direct .mp4 links also embed). The page shows a "Play recording" button that embeds the player after the audience check.
+
 `GET /api/version` returns the deployed Git commit, so a deployment can be matched to a release.
 
 ## Test evidence
