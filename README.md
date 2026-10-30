@@ -9,7 +9,8 @@ A working hackathon MVP for the Azentio.ai Special Challenge: public discovery, 
 - Server-resolved opaque demo sessions; protected APIs do not trust a browser-supplied tenant ID
 - Client dashboard, entitled synthetic sandbox, private drafts, explicit sharing intent, consent, submission, status, and withdrawal
 - Moderator queue with private source vs. separately stored de-identified shared copy
-- Approved-only learning feed and deterministic AIRA response with real publication references
+- Approved-only learning feed; AIRA answers from approved copies only, with server-validated citations (optional grounded LLM layer, deterministic fallback)
+- Moderator assist: suggested themes and possible duplicates, computed per request over live publications (lexical TF-IDF, suggestions only)
 - Three-distinct-organisation aggregation threshold and immediate suppression after withdrawal
 - Evidence-linked improvement creation with owner, priority, status, and audit records
 - Durable D1 records for sessions, organisations, observations, publications, moderation, enquiries, notifications, improvements, and audit events
@@ -68,9 +69,9 @@ Open `http://127.0.0.1:5173/signin-with-chatgpt?return_to=/login` for the local 
 
 1. Sign in, then choose **Meridian Bank · client admin**. Create an observation with `propose_community`, tick processing consent, and submit. Open **Consent history** on the record.
 2. Switch to **Learning moderator**. Review the private source (privacy-scan flags must be acknowledged), edit the safe copy, optionally link a theme, and publish — or ask for clarification / reject. The client is notified (bell icon) and can edit and resubmit clarified records.
-3. Click **Load 3-org scenario**, then open **Collective learning**. Use the filters and ask AIRA a question; references are validated against the retrieved publications. Below three organisations (per theme, per filter set) the answer is "insufficient evidence".
+3. Click **Queue 3-org scenario for review** to put three synthetic proposals in the queue (one contains a fake account number: the privacy scan blocks publishing until it is redacted and acknowledged; use the assist panel's suggested theme), or **Load 3-org scenario** for the pre-moderated fast path. Then open **Collective learning**. Use the filters and ask AIRA a question; references are validated against the retrieved publications. Below three organisations (per theme, per filter set) the answer is "insufficient evidence".
 4. Switch to **Product owner**, create an improvement from the approved theme, move it through its statuses with internal notes and client-visible updates.
-5. Switch to **Northstar Finance** to confirm tenant isolation, report a publication (it is temporarily unpublished), or withdraw one of your own (consent revoked, retrieval excluded immediately).
+5. Switch to **Northstar Finance** to confirm tenant isolation, report a publication (it stays visible and is queued for a moderator, who can **Hold** it during review; reports from two distinct users hide it automatically), or withdraw one of your own (consent revoked, retrieval excluded immediately).
 6. Reloading the scenario never revives withdrawn records; it creates fresh synthetic records.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for diagrams. CI runs lint, unit/acceptance tests, build and Playwright on every push (`.github/workflows/ci.yml`).
@@ -86,9 +87,30 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for diagrams. CI runs lint, uni
 - Visibility: `private` = author only; `organization` and `propose_community` = members of the owning organisation; only `submitted` + `propose_community` enters moderation.
 - Consents (`processing`, `community_sharing`, `attribution`, `model_training`) are append-only rows with policy version, actor and timestamp. Training is off by default and not offered. Attribution is shown on a shared copy only when the author consented **and** the moderator opts in.
 - **Shared metadata** (offering, industry, region, period) comes from controlled lists and a period pattern, and the moderator confirms each value at publication; free text cannot reach the shared copy.
+- **Reports** never unpublish on a single report. A moderator can hold (temporarily unpublish), restore/dismiss or withdraw; reports from `REPORT_AUTO_HIDE_REPORTERS` distinct users (default 2, minimum 2) hide the publication automatically. Duplicate reports by the same user are rejected and reporting is rate limited.
+- **Differencing safeguard**: organisation counts are returned only for themes at or above the threshold. A filtered view that narrows the feed to fewer than three organisations returns no publications.
 - **Withdrawal** invalidates retrieval immediately, deletes comments/bookmarks on the publication, alerts product owners, and improvements recompute their evidence on every read (withdrawn evidence never shows; ideas below three organisations are hidden from clients).
 - Entitlements (`products`, `entitlements`) are checked server-side on every sandbox run.
 - Workflow transitions live in `lib/domain/workflow.ts`; anything not in the map is rejected with 409 and every success is audited. Improvement statuses: Proposed, Under review, Planned, In progress, Released, Not proceeding.
+
+## AIRA modes
+
+AIRA always applies the approved-only retrieval and the three-organisation threshold first; that is the authorisation gate. Below it, nothing is sent anywhere and the answer is "insufficient evidence".
+
+- `deterministic_fallback` (default): returns the moderator-authored theme summary with references to the approved evidence.
+- `llm_grounded` (when `AIRA_LLM_API_KEY` is set): the user's question and the evidence for the matched theme are sent to the provider; the evidence is **approved shared copies only** (id, approved text, offering, industry, region, period; never organisation, author, source ids, attribution or reviewer notes). The model must return JSON with citations; the server rejects output that cites nothing, cites an id outside the retrieved set, mentions an unretrieved publication id, or contains restricted identifiers. Questions containing restricted identifiers are never forwarded. Any rejection, timeout or provider error falls back to the deterministic answer and records the reason. Answering never trains or changes a model.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `AIRA_LLM_API_KEY` | unset (LLM off) | Provider key |
+| `AIRA_LLM_PROVIDER` | `anthropic` | `anthropic` or `openai` (any OpenAI-compatible API via `AIRA_LLM_BASE_URL`) |
+| `AIRA_LLM_MODEL` | `claude-haiku-5-5` / `gpt-4o-mini` | Model id |
+| `AIRA_LLM_BASE_URL` | provider default | Optional override |
+| `AIRA_LLM_TIMEOUT_MS` | `15000` | Request timeout |
+
+## Withdrawal propagation SLA
+
+Demo and current production: synchronous. Shared retrieval, themes, AIRA evidence, moderator-assist suggestions and improvement evidence are all computed per request from the live tables, so there is no cache or index to invalidate. If a cache or vector index is added in production, the target is invalidation in the same transaction and at most 60 seconds end-to-end, verified by `scripts/smoke-deployed.mjs`. Withdrawal cannot recall material already viewed or copied, and an LLM provider's own retention is governed by that provider's terms.
 
 ## Employee, client and governance features
 
