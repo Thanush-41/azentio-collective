@@ -7,6 +7,7 @@ import * as obs from "@/lib/services/observations";
 import * as learn from "@/lib/services/learning";
 import * as imp from "@/lib/services/improvements";
 import * as adm from "@/lib/services/admin";
+import { moderationAssist } from "@/lib/services/assist";
 import { withIdempotency } from "@/lib/services/public";
 
 export async function GET(request: Request) {
@@ -20,6 +21,7 @@ export async function GET(request: Request) {
       case "observation": return Response.json({ observation: await obs.getObservation(db, actor, q("id") ?? "") });
       case "consents": return Response.json({ consents: await obs.consentHistory(db, actor, q("id") ?? "") });
       case "reports": return Response.json({ reports: await obs.listReports(db, actor) });
+      case "moderation_assist": return Response.json(await moderationAssist(db, actor, q("id") ?? ""));
       case "learning": return Response.json(await learn.getLearning(db, actor, { offering: q("offering"), industry: q("industry"), region: q("region"), period: q("period"), topic: q("topic") }));
       case "entitlements": return Response.json({ products: await learn.listEntitlements(db, actor) });
       case "improvements": return Response.json({ improvements: await imp.listImprovements(db, actor) });
@@ -57,6 +59,7 @@ export async function POST(request: Request) {
       case "report": { const i = s.reportSchema.parse(rest); return Response.json(await obs.reportPublication(db, actor, i.publicationId, i.reason), { status: 201 }); }
       case "resolve_report": { const i = s.resolveReportSchema.parse(rest); return Response.json(await obs.resolveReport(db, actor, i.reportId, i.outcome)); }
       case "seed_scenario": return Response.json(await learn.seedScenario(db, actor));
+      case "seed_moderation_scenario": return Response.json(await learn.seedModerationScenario(db, actor));
       case "sandbox_run": return Response.json(await learn.runSandbox(db, actor, s.sandboxSchema.parse(rest)));
       case "aira": { const i = s.airaSchema.parse(rest); return Response.json(await learn.askAira(db, actor, i.question, i.filters)); }
       case "create_improvement": return Response.json(await imp.createImprovement(db, actor, s.improvementSchema.parse(rest)), { status: 201 });
