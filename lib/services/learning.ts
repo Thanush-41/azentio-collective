@@ -1,5 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
-import { consents, entitlements, observations, products, publications, themeEvidence, themes } from "@/db/schema";
+import { consents, contentItems, entitlements, observations, products, publications, themeEvidence, themes } from "@/db/schema";
 import { answerQuestion, MIN_ORGANISATIONS, type EvidencePub } from "@/lib/domain/aira";
 import { kindOf } from "@/lib/domain/rbac";
 import { ApiError, POLICY_VERSION, type Actor, type Db, type Stmt, auditStmt, now, requirePermission, runBatch, uid } from "./core";
@@ -117,6 +117,16 @@ export async function seedScenario(db: Db, actor: Actor) {
       db.insert(publications).values({ id: pubId, sourceId: obsId, approvedText: text, offering: "Financial Analysis Intelligence", industry: "Banking", region: "India", observationPeriod: "2026-Q3" }),
       db.insert(themeEvidence).values({ themeId, publicationId: pubId }));
   }
+  // Synthetic demonstration content so public, client and employee surfaces are not empty (idempotent by fixed id).
+  const demo = (id: string, kind: string, audience: string, title: string, body: string, extra: { owner?: string; reviewDate?: string } = {}) =>
+    db.insert(contentItems).values({ id, kind, audience, title, body, status: "published", authorId: "system", owner: extra.owner ?? null, reviewDate: extra.reviewDate ?? null }).onConflictDoNothing();
+  stmts.push(
+    demo("CNT-DEMO-PUB1", "release_note", "public", "Collective learning hub (synthetic demo)", "Clients can propose observations, moderators publish de-identified copies, and themes appear only when three organisations contribute."),
+    demo("CNT-DEMO-PUB2", "knowledge", "public", "How sharing consent works (synthetic demo)", "Private by default. Sharing, attribution and any future training are separate, revocable permissions."),
+    demo("CNT-DEMO-EMP1", "knowledge", "employee", "Moderation redaction checklist", "Remove names, accounts and precise dates; reduce geography; confirm the sharing consent is still granted.", { owner: "Learning governance team", reviewDate: "2026-12-01" }),
+    demo("CNT-DEMO-EMP2", "knowledge", "employee", "Interpreting small-sample themes", "Three organisations is a floor, not proof of prevalence. Always show the limitation warning.", { owner: "Product insights", reviewDate: "2027-01-15" }),
+    demo("CNT-DEMO-EMP3", "broadcast", "employee", "Hackathon demo day (employees only)", "Internal broadcast: demo day schedule and judging notes. Employees only."),
+    demo("CNT-DEMO-CLI1", "resource", "client", "Getting started with the sandbox (synthetic demo)", "Open an entitled product from your dashboard, choose an operating cycle and read the simulated explanation."));
   stmts.push(auditStmt(db, actor.userId, "seed_scenario", themeId, `${created.length} new synthetic records`));
   await runBatch(db, stmts);
   return { status: "ready", created: created.length, publications: created };

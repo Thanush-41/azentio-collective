@@ -9,10 +9,10 @@ for (const [path, heading] of [["/solutions", /Governed intelligence/], ["/insig
   });
 }
 
-test("unknown workspace paths show not-found; unentitled sandbox product is refused", async ({ page }) => {
+test("unknown workspace paths are a real 404; unentitled sandbox product is refused", async ({ page }) => {
   await chooseWorkspace(page, /Northstar Finance · client member/);
-  await page.goto("/client/not-a-page");
-  await expect(page.getByText("Page not found")).toBeVisible();
+  const res = await page.goto("/client/not-a-page");
+  expect(res?.status()).toBe(404);
   await page.goto("/client/sandbox?product=Compliance%20Intelligence");
   await expect(page.getByText(/not entitled to "Compliance Intelligence"/)).toBeVisible();
 });

@@ -147,7 +147,7 @@ export const supportGrants = sqliteTable("support_grants", {
 // kind: broadcast | release_note | knowledge | resource. audience: public | client | employee.
 export const contentItems = sqliteTable("content_items", {
   id: text("id").primaryKey(), kind: text("kind").notNull(), audience: text("audience").notNull(), orgId: text("org_id"),
-  title: text("title").notNull(), body: text("body").notNull(), mediaUrl: text("media_url"), status: text("status").notNull().default("draft"), authorId: text("author_id").notNull(),
+  title: text("title").notNull(), body: text("body").notNull(), mediaUrl: text("media_url"), owner: text("owner"), reviewDate: text("review_date"), status: text("status").notNull().default("draft"), authorId: text("author_id").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -163,12 +163,13 @@ export const comments = sqliteTable("comments", {
 });
 
 export const experiments = sqliteTable("experiments", {
-  id: text("id").primaryKey(), title: text("title").notNull(), hypothesis: text("hypothesis").notNull(), status: text("status").notNull().default("proposed"),
+  id: text("id").primaryKey(), title: text("title").notNull(), hypothesis: text("hypothesis").notNull(), status: text("status").notNull().default("proposed"), teamId: text("team_id"),
   authorId: text("author_id").notNull(), createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 export const teams = sqliteTable("teams", {
   id: text("id").primaryKey(), name: text("name").notNull(), brief: text("brief").notNull().default(""), ownerId: text("owner_id").notNull(),
+  submissionUrl: text("submission_url"), progress: text("progress").notNull().default(""),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 export const teamMembers = sqliteTable("team_members", {
@@ -190,4 +191,17 @@ export const authSessions = sqliteTable("auth_sessions", {
 export const emailVerifications = sqliteTable("email_verifications", {
   id: text("id").primaryKey(), userId: text("user_id").notNull(), codeHash: text("code_hash").notNull(), expiresAt: text("expires_at").notNull(),
   attempts: integer("attempts").notNull().default(0), consumedAt: text("consumed_at"), createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+// Structured feedback loops. kind: knowledge | experiment. rating: useful | needs_update.
+export const feedback = sqliteTable("feedback", {
+  id: text("id").primaryKey(), kind: text("kind").notNull(), refId: text("ref_id").notNull(), userId: text("user_id").notNull(),
+  rating: text("rating").notNull(), comment: text("comment").notNull().default(""), createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex("feedback_unique_idx").on(table.kind, table.refId, table.userId)]);
+
+// Minimal in-portal support tickets. Clients see only their organisation's tickets and staff replies.
+export const supportRequests = sqliteTable("support_requests", {
+  id: text("id").primaryKey(), orgId: text("org_id").notNull(), authorId: text("author_id").notNull(), subject: text("subject").notNull(),
+  body: text("body").notNull(), status: text("status").notNull().default("open"), reply: text("reply").notNull().default(""),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`), updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

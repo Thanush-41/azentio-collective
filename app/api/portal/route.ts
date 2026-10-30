@@ -28,7 +28,9 @@ export async function GET(request: Request) {
       case "themes": return Response.json({ themes: await adm.listThemesAdmin(db, actor) });
       case "entitlement_matrix": return Response.json(await adm.entitlementMatrix(db, actor));
       case "support_grants": return Response.json({ grants: await adm.listSupportGrants(db, actor) });
-      case "content": return Response.json({ items: await adm.listContent(db, actor) });
+      case "content": return Response.json({ items: await adm.listContent(db, actor, q("q")) });
+      case "audit": return Response.json({ events: await adm.listAudit(db, actor) });
+      case "support": return Response.json({ requests: await adm.listSupportRequests(db, actor) });
       case "bookmarks": return Response.json({ bookmarks: await adm.listBookmarks(db, actor) });
       case "comments": return Response.json({ comments: await adm.listComments(db, actor, q("id") ?? "") });
       case "experiments": return Response.json({ experiments: await adm.listExperiments(db, actor) });
@@ -73,6 +75,12 @@ export async function POST(request: Request) {
       case "add_bookmark": return Response.json(await adm.addBookmark(db, actor, s.bookmarkSchema.parse(rest)), { status: 201 });
       case "remove_bookmark": return Response.json(await adm.removeBookmark(db, actor, s.idSchema.parse(rest).id));
       case "add_comment": { const i = s.commentSchema.parse(rest); return Response.json(await adm.addComment(db, actor, i.publicationId, i.body), { status: 201 }); }
+      case "update_team": return Response.json(await adm.updateTeam(db, actor, s.teamUpdateSchema.parse(rest)));
+      case "experiment_status": { const i = s.experimentStatusSchema.parse(rest); return Response.json(await adm.setExperimentStatus(db, actor, i.id, i.status)); }
+      case "add_feedback": return Response.json(await adm.addFeedback(db, actor, s.feedbackSchema.parse(rest)));
+      case "rename_bookmark": { const i = s.renameBookmarkSchema.parse(rest); return Response.json(await adm.renameBookmark(db, actor, i.id, i.label)); }
+      case "create_support_request": return Response.json(await adm.createSupportRequest(db, actor, s.supportRequestSchema.parse(rest)), { status: 201 });
+      case "reply_support": return Response.json(await adm.replySupportRequest(db, actor, s.supportReplySchema.parse(rest)));
       case "submit_experiment": return Response.json(await adm.submitExperiment(db, actor, s.experimentSchema.parse(rest)), { status: 201 });
       case "create_team": return Response.json(await adm.createTeam(db, actor, s.teamSchema.parse(rest)), { status: 201 });
       case "join_team": return Response.json(await adm.joinTeam(db, actor, s.joinTeamSchema.parse(rest).teamId));

@@ -90,9 +90,15 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for diagrams. CI runs lint, uni
 - Entitlements (`products`, `entitlements`) are checked server-side on every sandbox run.
 - Workflow transitions live in `lib/domain/workflow.ts`; anything not in the map is rejected with 409 and every success is audited. Improvement statuses: Proposed, Under review, Planned, In progress, Released, Not proceeding.
 
+## Employee, client and governance features
+
+Knowledge library (owner, review date, search, useful/needs-update feedback), hackathon team spaces (members, progress, submission link, team experiments with a lifecycle), experiments with structured feedback, saved searches (open/rename/delete), a moderator/product-owner audit trail, in-portal client support requests with staff replies, release notes/broadcasts/client resources by audience, and recordings. Recording links are never returned in lists; `/api/media/<id>` re-checks the audience on every request before redirecting. A confidential recording must still be hosted somewhere that enforces access itself (the redirect target is revealed to permitted users only).
+
+`GET /api/version` returns the deployed Git commit, so a deployment can be matched to a release.
+
 ## Test evidence
 
-`npm test` runs 48 tests: unit tests for workflow, privacy scan, validation, RBAC and AIRA, plus acceptance tests against a real SQLite database built from the generated migrations (tenant isolation by id, privilege escalation → 403, consent history, draft-cannot-publish, payload leak check, threshold, withdrawal vs. re-seeding, report/restore, versioned republish, entitlement bypass, improvement audiences, rate limiting). `npm run test:e2e` runs 42 Playwright tests against the running app and a fresh local D1: the full learning loop, forged-membership/escalation/entitlement/validation checks over HTTP, admin screens (entitlements, themes, content, support access, lab), and mobile/tablet/desktop overflow checks with full-page screenshots in `e2e/screenshots/`.
+`npm test` runs 56 tests: unit tests for workflow, privacy scan, validation, RBAC and AIRA, plus acceptance tests against a real SQLite database built from the generated migrations (tenant isolation by id, privilege escalation → 403, consent history, draft-cannot-publish, payload leak check, threshold, withdrawal vs. re-seeding, report/restore, versioned republish, entitlement bypass, improvement audiences, rate limiting). `npm run test:e2e` runs 50 Playwright tests against the running app and a fresh local D1: the full learning loop, forged-membership/escalation/entitlement/validation checks over HTTP, admin screens (entitlements, themes, content, support access, lab), and mobile/tablet/desktop overflow checks with full-page screenshots in `e2e/screenshots/`.
 
 ## Security model and demo limitations
 

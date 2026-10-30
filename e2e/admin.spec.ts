@@ -66,7 +66,7 @@ test("employee lab: experiment and team space", async ({ page }) => {
   await expect(page.getByText("Experiment submitted.")).toBeVisible();
   await page.getByLabel("Team name").fill("Team Alpha");
   await page.getByRole("button", { name: "Create team" }).click();
-  await expect(page.getByText("Team Alpha")).toBeVisible();
+  await expect(page.locator("b", { hasText: "Team Alpha" })).toBeVisible();
 });
 
 test("invitations: single-use link accepted by the intended email, revocable while pending", async ({ page }) => {

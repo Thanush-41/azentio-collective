@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Actor, Db } from "@/lib/services/core";
 import * as adm from "@/lib/services/admin";
 import * as learn from "@/lib/services/learning";
+import * as imp from "@/lib/services/improvements";
 import * as obs from "@/lib/services/observations";
 import { provisionUser } from "@/lib/services/identity";
 import { CLOSED, createTestDb, obsInput, signIn } from "./helpers";
@@ -84,7 +85,12 @@ describe("QA-09 / QA-10", () => {
     const base = { audience: "employee", title: "Session", body: "Body of the session.", mediaUrl: "https://example.com/v" };
     await expect(adm.createContent(db, publisher, { ...base, kind: "broadcast" }, true)).rejects.toSatisfy(e => code(e) === 400);
     await adm.createContent(db, publisher, { ...base, kind: "recording" }, true);
-    expect((await adm.listContent(db, employee)).find(i => i.kind === "recording")?.mediaUrl).toBe("https://example.com/v");
+    const rec = (await adm.listContent(db, employee)).find(i => i.kind === "recording")!;
+    expect(rec.mediaPath).toBe(`/api/media/${rec.id}`);
+    expect(JSON.stringify(rec)).not.toContain("example.com");
+    expect(await adm.resolveMedia(db, employee, rec.id)).toBe("https://example.com/v");
+    await expect(adm.resolveMedia(db, meridian, rec.id)).rejects.toSatisfy(e => code(e) === 404);
+    await expect(adm.resolveMedia(db, null, rec.id)).rejects.toSatisfy(e => code(e) === 401);
     expect((await adm.listContent(db, meridian)).some(i => i.kind === "recording")).toBe(false);
   });
 });
@@ -106,5 +112,60 @@ describe("bookmarks, comments, lab", () => {
     const { id } = await adm.createTeam(db, employee, { name: "Team Alpha", brief: "" });
     await adm.joinTeam(db, owner, id);
     expect((await adm.listTeams(db, owner))[0]).toMatchObject({ members: 2, joined: true });
+  });
+});
+
+describe("employee knowledge, teams, feedback, saved searches, audit, support", () => {
+  it("knowledge library is searchable, has owner/review date, employee-only, and collects feedback", async () => {
+    await adm.createContent(db, publisher, { kind: "knowledge", audience: "employee", title: "Redaction checklist", body: "Remove names and accounts.", owner: "Governance", reviewDate: "2026-12-01" }, true);
+    const [item] = await adm.listContent(db, employee, "redaction");
+    expect(item).toMatchObject({ owner: "Governance", reviewDate: "2026-12-01" });
+    expect(await adm.listContent(db, employee, "zzz-none")).toHaveLength(0);
+    expect(await adm.listContent(db, meridian, "redaction")).toHaveLength(0);
+    await adm.addFeedback(db, employee, { kind: "knowledge", refId: item.id, rating: "needs_update", comment: "Out of date" });
+    await adm.addFeedback(db, employee, { kind: "knowledge", refId: item.id, rating: "useful", comment: "" }); // replaces, not duplicates
+    const after = (await adm.listContent(db, employee))[0];
+    expect([after.useful, after.needsUpdate]).toEqual([1, 0]);
+    await expect(adm.addFeedback(db, meridian, { kind: "knowledge", refId: item.id, rating: "useful", comment: "" })).rejects.toSatisfy(e => code(e) === 403);
+  });
+  it("team spaces: owner-only progress/submission link, team-scoped experiments, experiment lifecycle", async () => {
+    const { id } = await adm.createTeam(db, employee, { name: "Team Alpha", brief: "Seasonality" });
+    await expect(adm.updateTeam(db, owner, { teamId: id, progress: "x" })).rejects.toSatisfy(e => code(e) === 403);
+    await adm.updateTeam(db, employee, { teamId: id, progress: "Prototype running", submissionUrl: "https://example.com/submission" });
+    await expect(adm.submitExperiment(db, owner, { title: "E1", hypothesis: "A long enough hypothesis.", teamId: id })).rejects.toSatisfy(e => code(e) === 403);
+    await adm.joinTeam(db, owner, id);
+    const e = await adm.submitExperiment(db, owner, { title: "E1", hypothesis: "A long enough hypothesis.", teamId: id });
+    expect((await adm.listTeams(db, employee))[0]).toMatchObject({ progress: "Prototype running", experiments: 1, members: 2 });
+    await expect(adm.setExperimentStatus(db, owner, e.id, "concluded")).rejects.toSatisfy(x => code(x) === 409);
+    await adm.setExperimentStatus(db, owner, e.id, "running");
+    await expect(adm.setExperimentStatus(db, employee, e.id, "concluded")).rejects.toSatisfy(x => code(x) === 404);
+  });
+  it("saved searches can be renamed and removed only by their owner", async () => {
+    const b = await adm.addBookmark(db, meridian, { kind: "search", ref: "region=India", label: "India" });
+    await expect(adm.renameBookmark(db, northstar, b.id, "mine")).rejects.toSatisfy(e => code(e) === 404);
+    await adm.renameBookmark(db, meridian, b.id, "India view");
+    expect((await adm.listBookmarks(db, meridian))[0].label).toBe("India view");
+  });
+  it("audit viewer is limited to moderators and product owners", async () => {
+    await adm.createTeam(db, employee, { name: "Audited", brief: "" });
+    await expect(adm.listAudit(db, meridian)).rejects.toSatisfy(e => code(e) === 403);
+    await expect(adm.listAudit(db, employee)).rejects.toSatisfy(e => code(e) === 403);
+    expect((await adm.listAudit(db, moderator)).some(e => e.action === "create_team")).toBe(true);
+  });
+  it("support requests: clients see only their own organisation's tickets and replies", async () => {
+    const t = await adm.createSupportRequest(db, meridian, { subject: "Sandbox question", body: "How do I rerun the scenario?" });
+    expect(await adm.listSupportRequests(db, northstar)).toHaveLength(0);
+    await expect(adm.replySupportRequest(db, meridian, { id: t.id, reply: "self-reply", status: "closed" })).rejects.toSatisfy(e => code(e) === 403);
+    await adm.replySupportRequest(db, employee, { id: t.id, reply: "Use the Run button again.", status: "closed" });
+    const mine = await adm.listSupportRequests(db, meridian);
+    expect(mine[0]).toMatchObject({ status: "closed", reply: "Use the Run button again." });
+    expect(JSON.stringify(mine)).not.toMatch(/org-|authorId/);
+    expect((await imp.listNotifications(db, meridian)).notifications.some(n => n.event === "support_reply")).toBe(true);
+  });
+  it("seeded demo content reaches the right audiences only", async () => {
+    await learn.seedScenario(db, moderator);
+    expect((await adm.publicContent(db)).length).toBe(2);
+    expect((await adm.listContent(db, employee)).some(i => i.id === "CNT-DEMO-EMP1")).toBe(true);
+    expect((await adm.listContent(db, meridian)).some(i => i.audience === "employee")).toBe(false);
   });
 });

@@ -43,7 +43,7 @@ describe("1. identity and privilege escalation", () => {
     await provisionUser(db, { userId: "staff-unverified", email: "Staff@X.dev", emailVerified: false }, staffOpts);
     expect(await listMemberships(db, "staff-unverified")).toEqual([]);
     await provisionUser(db, { userId: "staff", email: "Staff@X.dev", emailVerified: true }, staffOpts);
-    expect((await listMemberships(db, "staff")).map(m => m.role).sort()).toEqual(["client_admin", "client_member", "content_publisher", "employee", "moderator", "product_owner"]);
+    expect((await listMemberships(db, "staff")).map(m => m.role).sort()).toEqual(["client_admin", "client_member", "client_member", "content_publisher", "employee", "moderator", "product_owner"]);
     await provisionUser(db, { userId: "other", email: "other@x.dev", emailVerified: true }, staffOpts);
     expect(await listMemberships(db, "other")).toEqual([]);
   });

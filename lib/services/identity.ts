@@ -37,7 +37,8 @@ export async function provisionUser(db: Db, identity: { userId: string; email: s
   ];
   const grants: { orgId: string | null; role: Role; label: string; by: string }[] = [];
   const demoClients = [{ orgId: "org-meridian", role: "client_admin" as Role, label: "Meridian Bank", by: "demo-provisioning" },
-    { orgId: "org-northstar", role: "client_member" as Role, label: "Northstar Finance", by: "demo-provisioning" }];
+    { orgId: "org-northstar", role: "client_member" as Role, label: "Northstar Finance", by: "demo-provisioning" },
+    { orgId: "org-harbour", role: "client_member" as Role, label: "Harbour Credit Union", by: "demo-provisioning" }];
   const approvedStaff = opts.staffEmails.includes(email) && identity.emailVerified === true;
   if (opts.openDemoClients) grants.push(...demoClients);
   if (opts.openDemoStaff || approvedStaff) {
