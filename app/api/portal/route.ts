@@ -6,6 +6,7 @@ import { inviteMember, listOrgMembers, revokeMembership } from "@/lib/services/i
 import * as obs from "@/lib/services/observations";
 import * as learn from "@/lib/services/learning";
 import * as imp from "@/lib/services/improvements";
+import * as adm from "@/lib/services/admin";
 import { withIdempotency } from "@/lib/services/public";
 
 export async function GET(request: Request) {
@@ -24,6 +25,14 @@ export async function GET(request: Request) {
       case "improvements": return Response.json({ improvements: await imp.listImprovements(db, actor) });
       case "notifications": return Response.json(await imp.listNotifications(db, actor));
       case "members": return Response.json(await listOrgMembers(db, actor));
+      case "themes": return Response.json({ themes: await adm.listThemesAdmin(db, actor) });
+      case "entitlement_matrix": return Response.json(await adm.entitlementMatrix(db, actor));
+      case "support_grants": return Response.json({ grants: await adm.listSupportGrants(db, actor) });
+      case "content": return Response.json({ items: await adm.listContent(db, actor) });
+      case "bookmarks": return Response.json({ bookmarks: await adm.listBookmarks(db, actor) });
+      case "comments": return Response.json({ comments: await adm.listComments(db, actor, q("id") ?? "") });
+      case "experiments": return Response.json({ experiments: await adm.listExperiments(db, actor) });
+      case "teams": return Response.json({ teams: await adm.listTeams(db, actor) });
       default: throw new ApiError("Unknown scope", 400);
     }
   } catch (error) { return errorResponse(error); }
@@ -53,6 +62,19 @@ export async function POST(request: Request) {
       case "mark_read": return Response.json(await imp.markRead(db, actor, s.markReadSchema.parse(rest).ids));
       case "invite_member": return Response.json(await inviteMember(db, actor, s.inviteSchema.parse(rest)), { status: 201 });
       case "revoke_membership": return Response.json(await revokeMembership(db, actor, s.revokeSchema.parse(rest).membershipId));
+      case "create_theme": return Response.json(await adm.createTheme(db, actor, s.themeSchema.parse(rest)), { status: 201 });
+      case "link_evidence": { const i = s.linkEvidenceSchema.parse(rest); return Response.json(await adm.linkEvidence(db, actor, i.themeId, i.publicationId)); }
+      case "set_entitlement": { const i = s.entitlementSchema.parse(rest); return Response.json(await learn.setEntitlement(db, actor, i.orgId, i.productId, i.enabled)); }
+      case "grant_support": return Response.json(await adm.grantSupportAccess(db, actor, s.supportGrantSchema.parse(rest)), { status: 201 });
+      case "revoke_support": return Response.json(await adm.revokeSupportAccess(db, actor, s.idSchema.parse(rest).id));
+      case "create_content": { const { publish, ...i } = s.contentSchema.parse(rest); return Response.json(await adm.createContent(db, actor, i, publish), { status: 201 }); }
+      case "content_status": { const i = s.contentStatusSchema.parse(rest); return Response.json(await adm.setContentStatus(db, actor, i.id, i.status)); }
+      case "add_bookmark": return Response.json(await adm.addBookmark(db, actor, s.bookmarkSchema.parse(rest)), { status: 201 });
+      case "remove_bookmark": return Response.json(await adm.removeBookmark(db, actor, s.idSchema.parse(rest).id));
+      case "add_comment": { const i = s.commentSchema.parse(rest); return Response.json(await adm.addComment(db, actor, i.publicationId, i.body), { status: 201 }); }
+      case "submit_experiment": return Response.json(await adm.submitExperiment(db, actor, s.experimentSchema.parse(rest)), { status: 201 });
+      case "create_team": return Response.json(await adm.createTeam(db, actor, s.teamSchema.parse(rest)), { status: 201 });
+      case "join_team": return Response.json(await adm.joinTeam(db, actor, s.joinTeamSchema.parse(rest).teamId));
       default: throw new ApiError("Unknown action", 400);
     }
   } catch (error) { return errorResponse(error); }

@@ -1,4 +1,4 @@
-export const ROLES = ["client_admin", "client_member", "moderator", "product_owner", "employee"] as const;
+export const ROLES = ["client_admin", "client_member", "moderator", "product_owner", "employee", "content_publisher"] as const;
 export type Role = (typeof ROLES)[number];
 export type Kind = "client" | "moderator" | "product_owner" | "employee";
 
@@ -6,17 +6,23 @@ export const CLIENT_ROLES: Role[] = ["client_admin", "client_member"];
 // Roles a client administrator may grant. Employee, moderator and platform roles are never client-assignable.
 export const CLIENT_ASSIGNABLE_ROLES: Role[] = ["client_admin", "client_member"];
 
-export const kindOf = (role: Role): Kind => (CLIENT_ROLES.includes(role) ? "client" : (role as Kind));
+export const kindOf = (role: Role): Kind => (CLIENT_ROLES.includes(role) ? "client" : role === "content_publisher" ? "employee" : (role as Kind));
 
 const PERMISSIONS = {
   "observation:write": ["client_admin", "client_member"],
   "org:view": ["client_admin", "client_member"],
   "members:manage": ["client_admin"],
-  "sandbox:run": ["client_admin", "client_member", "employee", "product_owner"],
+  "sandbox:run": ["client_admin", "client_member", "employee", "product_owner", "content_publisher"],
+  "support:grant": ["client_admin"],
+  "theme:manage": ["moderator", "product_owner"],
+  "entitlements:manage": ["product_owner"],
+  "content:publish": ["content_publisher", "product_owner"],
+  "lab:use": ["employee", "product_owner", "content_publisher"],
   "moderate": ["moderator"],
   "improvement:manage": ["product_owner"],
   "improvement:read_internal": ["product_owner", "employee"],
-  "learning:read": ["client_admin", "client_member", "moderator", "product_owner", "employee"],
+  "social": ["client_admin", "client_member", "moderator", "product_owner", "employee", "content_publisher"],
+  "learning:read": ["client_admin", "client_member", "moderator", "product_owner", "employee", "content_publisher"],
   "demo:seed": ["moderator", "product_owner"],
 } as const satisfies Record<string, readonly Role[]>;
 export type Permission = keyof typeof PERMISSIONS;

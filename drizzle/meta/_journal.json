@@ -15,6 +15,13 @@
       "when": 1793345481406,
       "tag": "0001_portal_security",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793346165860,
+      "tag": "0002_admin_scope",
+      "breakpoints": true
     }
   ]
 }

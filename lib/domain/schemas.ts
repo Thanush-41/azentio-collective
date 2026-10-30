@@ -40,3 +40,17 @@ export const publicFormSchema = z.object({
   kind: z.enum(["demo", "hackathon"]).default("demo"), name: text(1, 120), email: z.string().trim().email().max(180),
   company: text(1, 180), message: z.string().trim().max(1200).default(""), idempotencyKey: z.string().max(80).optional(),
 });
+
+export const themeSchema = z.object({ title: text(3, 120), topic: text(3, 160), offering: text(2, 120), summary: text(10, 600), suggestedImprovement: z.string().trim().max(300).default("") });
+export const linkEvidenceSchema = z.object({ themeId: text(3, 40), publicationId: text(3, 40) });
+export const entitlementSchema = z.object({ orgId: text(3, 60), productId: text(3, 60), enabled: z.boolean() });
+export const supportGrantSchema = z.object({ email: z.string().trim().toLowerCase().email().max(180), hours: z.number().int().min(1).max(168) });
+export const idSchema = z.object({ id: text(3, 60) });
+export const contentSchema = z.object({ kind: z.enum(["broadcast", "release_note", "knowledge", "resource"]), audience: z.enum(["public", "client", "employee"]),
+  orgId: text(3, 60).optional(), title: text(3, 160), body: text(5, 4000), publish: z.boolean().default(false) });
+export const contentStatusSchema = z.object({ id: text(3, 60), status: z.enum(["published", "archived"]) });
+export const bookmarkSchema = z.object({ kind: z.enum(["publication", "search"]), ref: text(1, 400), label: text(1, 120) });
+export const commentSchema = z.object({ publicationId: text(3, 40), body: text(2, 800) });
+export const experimentSchema = z.object({ title: text(3, 160), hypothesis: text(10, 1000) });
+export const teamSchema = z.object({ name: text(2, 80), brief: z.string().trim().max(500).default("") });
+export const joinTeamSchema = z.object({ teamId: text(3, 40) });

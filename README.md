@@ -85,7 +85,7 @@ Open `http://127.0.0.1:5173/signin-with-chatgpt?return_to=/login` for the local 
 
 ## Test evidence
 
-`npm test` runs 34 tests: unit tests for workflow, privacy scan, validation, RBAC and AIRA, plus acceptance tests against a real SQLite database built from the generated migrations (tenant isolation by id, privilege escalation → 403, consent history, draft-cannot-publish, payload leak check, threshold, withdrawal vs. re-seeding, report/restore, versioned republish, entitlement bypass, improvement audiences, rate limiting). Playwright browser tests and responsive visual QA are **not** done yet — see `KNOWN_LIMITATIONS.md`.
+`npm test` runs 39 tests: unit tests for workflow, privacy scan, validation, RBAC and AIRA, plus acceptance tests against a real SQLite database built from the generated migrations (tenant isolation by id, privilege escalation → 403, consent history, draft-cannot-publish, payload leak check, threshold, withdrawal vs. re-seeding, report/restore, versioned republish, entitlement bypass, improvement audiences, rate limiting). `npm run test:e2e` runs 33 Playwright tests against the running app and a fresh local D1: the full learning loop, forged-membership/escalation/entitlement/validation checks over HTTP, admin screens (entitlements, themes, content, support access, lab), and mobile/tablet/desktop overflow checks with full-page screenshots in `e2e/screenshots/`.
 
 ## Security model and demo limitations
 

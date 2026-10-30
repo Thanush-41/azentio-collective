@@ -39,7 +39,7 @@ describe("1. identity and privilege escalation", () => {
     await provisionUser(db, { userId: "plain", email: "plain@x.dev" }, CLOSED);
     expect(await listMemberships(db, "plain")).toEqual([]);
     await provisionUser(db, { userId: "staff", email: "Staff@X.dev" }, { ...CLOSED, staffEmails: ["staff@x.dev"] });
-    expect((await listMemberships(db, "staff")).map(m => m.role).sort()).toEqual(["employee", "moderator", "product_owner"]);
+    expect((await listMemberships(db, "staff")).map(m => m.role).sort()).toEqual(["content_publisher", "employee", "moderator", "product_owner"]);
   });
   it("moderator actions are forbidden to client roles", async () => {
     const { observation_id } = await obs.createObservation(db, meridian, obsInput(), true);

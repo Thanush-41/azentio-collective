@@ -4,6 +4,7 @@ import { kindOf } from "@/lib/domain/rbac";
 import { scanPrivacy } from "@/lib/domain/privacy";
 import { canReadObservation, isModerationEligible } from "@/lib/domain/visibility";
 import { assertTransition, OBSERVATION_TRANSITIONS, type ObservationStatus } from "@/lib/domain/workflow";
+import { hasSupportGrant } from "./admin";
 import { ApiError, POLICY_VERSION, type Actor, type Db, type Stmt, auditStmt, notifyStmt, now, requireOrg, requirePermission, runBatch, uid, usersWithRole } from "./core";
 
 export type ObservationInput = {
@@ -113,7 +114,15 @@ export async function listObservations(db: Db, actor: Actor) {
 
 export async function getObservation(db: Db, actor: Actor, id: string) {
   const [row] = await db.select().from(observations).where(eq(observations.id, id)).limit(1);
-  if (!row || !canReadObservation(actor, row)) throw new ApiError("Observation not found", 404);
+  if (!row) throw new ApiError("Observation not found", 404);
+  if (!canReadObservation(actor, row)) {
+    // Moderators may also read non-private records of an organisation that granted them time-limited support access (audited).
+    if (row.sharingIntent !== "private" && await hasSupportGrant(db, actor, row.orgId)) {
+      await runBatch(db, [auditStmt(db, actor.userId, "support_read", row.id, row.orgId)]);
+      return row;
+    }
+    throw new ApiError("Observation not found", 404);
+  }
   return row;
 }
 

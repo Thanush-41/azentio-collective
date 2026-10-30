@@ -81,7 +81,7 @@ export async function runSandbox(db: Db, actor: Actor, input: { offering: string
 }
 
 export async function setEntitlement(db: Db, actor: Actor, orgId: string, productId: string, enabled: boolean) {
-  requirePermission(actor, "improvement:manage");
+  requirePermission(actor, "entitlements:manage");
   const id = `ENT-${orgId}-${productId}`;
   await runBatch(db, [db.insert(entitlements).values({ id, orgId, productId, status: enabled ? "enabled" : "disabled" })
     .onConflictDoUpdate({ target: entitlements.id, set: { status: enabled ? "enabled" : "disabled" } }), auditStmt(db, actor.userId, "set_entitlement", id, enabled ? "enabled" : "disabled")]);

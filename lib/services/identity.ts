@@ -38,7 +38,7 @@ export async function provisionUser(db: Db, identity: { userId: string; email: s
     { orgId: "org-northstar", role: "client_member", label: "Northstar Finance", by: "demo-provisioning" });
   if (opts.openDemoStaff || opts.staffEmails.includes(email)) grants.push(
     { orgId: null, role: "moderator", label: "Learning Moderator", by: "staff-allowlist" }, { orgId: null, role: "product_owner", label: "Product Owner", by: "staff-allowlist" },
-    { orgId: null, role: "employee", label: "Azentio Employee", by: "staff-allowlist" });
+    { orgId: null, role: "employee", label: "Azentio Employee", by: "staff-allowlist" }, { orgId: null, role: "content_publisher", label: "Content Publisher", by: "staff-allowlist" });
   const pending = await db.select().from(invitations).where(and(eq(invitations.email, email), eq(invitations.status, "pending")));
   for (const inv of pending) {
     const org = DEMO_ORGS.find(o => o.id === inv.orgId);

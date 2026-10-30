@@ -134,3 +134,41 @@ export const idempotencyKeys = sqliteTable("idempotency_keys", {
 export const rateLimits = sqliteTable("rate_limits", {
   key: text("key").primaryKey(), windowStart: integer("window_start").notNull(), count: integer("count").notNull().default(0),
 });
+
+// Client-granted, time-boxed authorisation for Azentio moderation/support staff to read non-private org records.
+export const supportGrants = sqliteTable("support_grants", {
+  id: text("id").primaryKey(), orgId: text("org_id").notNull(), granteeUserId: text("grantee_user_id").notNull(),
+  status: text("status").notNull().default("active"), expiresAt: text("expires_at").notNull(), grantedBy: text("granted_by").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+// kind: broadcast | release_note | knowledge | resource. audience: public | client | employee.
+export const contentItems = sqliteTable("content_items", {
+  id: text("id").primaryKey(), kind: text("kind").notNull(), audience: text("audience").notNull(), orgId: text("org_id"),
+  title: text("title").notNull(), body: text("body").notNull(), status: text("status").notNull().default("draft"), authorId: text("author_id").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+// kind: publication | search
+export const bookmarks = sqliteTable("bookmarks", {
+  id: text("id").primaryKey(), userId: text("user_id").notNull(), kind: text("kind").notNull(), ref: text("ref").notNull(), label: text("label").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const comments = sqliteTable("comments", {
+  id: text("id").primaryKey(), publicationId: text("publication_id").notNull(), authorId: text("author_id").notNull(), authorLabel: text("author_label").notNull(),
+  body: text("body").notNull(), createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const experiments = sqliteTable("experiments", {
+  id: text("id").primaryKey(), title: text("title").notNull(), hypothesis: text("hypothesis").notNull(), status: text("status").notNull().default("proposed"),
+  authorId: text("author_id").notNull(), createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const teams = sqliteTable("teams", {
+  id: text("id").primaryKey(), name: text("name").notNull(), brief: text("brief").notNull().default(""), ownerId: text("owner_id").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export const teamMembers = sqliteTable("team_members", {
+  teamId: text("team_id").notNull(), userId: text("user_id").notNull(), label: text("label").notNull(),
+}, (table) => [uniqueIndex("team_members_idx").on(table.teamId, table.userId)]);
