@@ -7,6 +7,7 @@ import { scanPrivacy } from "@/lib/domain/privacy";
 import { canReadObservation, isModerationEligible } from "@/lib/domain/visibility";
 import { assertTransition, OBSERVATION_TRANSITIONS, type ObservationStatus } from "@/lib/domain/workflow";
 import { hasSupportGrant } from "./admin";
+import { rateLimit } from "./public";
 import { ApiError, POLICY_VERSION, type Actor, type Db, type Stmt, auditStmt, notifyStmt, now, requireOrg, requirePermission, runBatch, uid, usersWithRole } from "./core";
 
 export type ObservationInput = {
@@ -195,7 +196,9 @@ async function propagateWithdrawal(db: Db, publicationIds: string[], actorId: st
   const cited = await db.select({ id: improvementEvidence.improvementId }).from(improvementEvidence).where(inArray(improvementEvidence.publicationId, publicationIds));
   const owners = cited.length ? await usersWithRole(db, ["product_owner"]) : [];
   for (const pid of publicationIds) {
-    stmts.push(db.delete(comments).where(eq(comments.publicationId, pid)), db.delete(bookmarks).where(and(eq(bookmarks.kind, "publication"), eq(bookmarks.ref, pid))));
+    stmts.push(db.delete(comments).where(eq(comments.publicationId, pid)), db.delete(bookmarks).where(and(eq(bookmarks.kind, "publication"), eq(bookmarks.ref, pid))),
+      // Open reports on a withdrawn publication have nothing left to decide.
+      db.update(publicationReports).set({ status: "resolved" }).where(and(eq(publicationReports.publicationId, pid), eq(publicationReports.status, "open"))));
   }
   for (const o of owners) stmts.push(notifyStmt(db, o, "evidence_withdrawn", `Evidence cited by ${new Set(cited.map(c => c.id)).size} improvement idea(s) was withdrawn. Review their evidence.`));
   stmts.push(auditStmt(db, actorId, "propagate_withdrawal", publicationIds.join(","), `${cited.length} improvement citation(s)`));
@@ -218,43 +221,79 @@ export async function withdraw(db: Db, actor: Actor, id: string) {
   return { observation_id: id, status: "withdrawn", retrieval_excluded: true, effective: "immediate" };
 }
 
+/** Distinct reporters with open reports needed before a publication is hidden automatically (a moderator can hold it sooner). */
+export const reportAutoHideThreshold = (env: Record<string, string | undefined> = process.env) => Math.max(2, Number(env.REPORT_AUTO_HIDE_REPORTERS) || 2);
+
+/**
+ * A single report never unpublishes: it queues the publication for a moderator, who can hold it during review.
+ * It is hidden automatically only once reports from several distinct users are open, so one account cannot take the shared feed offline.
+ */
 export async function reportPublication(db: Db, actor: Actor, publicationId: string, reason: string) {
+  requirePermission(actor, "learning:read");
+  await rateLimit(db, `report:${actor.userId}`, 20, 3600);
   const [pub] = await db.select().from(publications).where(and(eq(publications.id, publicationId), eq(publications.status, "published"))).limit(1);
   if (!pub) throw new ApiError("Published contribution not found", 404);
-  assertTransition(OBSERVATION_TRANSITIONS, "published", "reported");
+  const open = await db.select({ reporterId: publicationReports.reporterId }).from(publicationReports)
+    .where(and(eq(publicationReports.publicationId, pub.id), eq(publicationReports.status, "open")));
+  if (open.some(r => r.reporterId === actor.userId)) throw new ApiError("You have already reported this contribution; a moderator will review it", 409);
+  const reporters = new Set([...open.map(r => r.reporterId), actor.userId]).size;
+  const hide = reporters >= reportAutoHideThreshold();
+  if (hide) assertTransition(OBSERVATION_TRANSITIONS, "published", "reported");
   const id = uid("RPT");
   const mods = await usersWithRole(db, ["moderator"]);
   await runBatch(db, [
-    db.update(publications).set({ status: "under_investigation" }).where(eq(publications.id, pub.id)),
-    db.update(observations).set({ status: "reported", updatedAt: now() }).where(eq(observations.id, pub.sourceId)),
+    ...(hide ? [db.update(publications).set({ status: "under_investigation" }).where(eq(publications.id, pub.id)),
+      db.update(observations).set({ status: "reported", updatedAt: now() }).where(eq(observations.id, pub.sourceId))] : []),
     db.insert(publicationReports).values({ id, publicationId: pub.id, reporterId: actor.userId, reason }),
-    ...mods.map(m => notifyStmt(db, m, "reported", `${pub.id} was reported and temporarily unpublished pending review.`)),
-    auditStmt(db, actor.userId, "report", pub.id, reason)]);
-  return { report_id: id, publication_id: pub.id, status: "under_investigation" };
+    ...mods.map(m => notifyStmt(db, m, "reported", hide ? `${pub.id} was reported by ${reporters} users and temporarily unpublished pending review.`
+      : `${pub.id} was reported and is still visible. Review it, and hold it if it should be unpublished during review.`)),
+    auditStmt(db, actor.userId, "report", pub.id, `${hide ? "auto-hidden" : "queued"}: ${reason}`)]);
+  return { report_id: id, publication_id: pub.id, status: hide ? "under_investigation" : "published", hidden: hide };
 }
 
 export async function listReports(db: Db, actor: Actor) {
   requirePermission(actor, "moderate");
-  const rows = await db.select({ id: publicationReports.id, publicationId: publicationReports.publicationId, reason: publicationReports.reason, status: publicationReports.status, createdAt: publicationReports.createdAt })
-    .from(publicationReports).where(eq(publicationReports.status, "open")).orderBy(desc(publicationReports.createdAt));
+  const rows = await db.select({ id: publicationReports.id, publicationId: publicationReports.publicationId, reason: publicationReports.reason, status: publicationReports.status,
+    createdAt: publicationReports.createdAt, publicationStatus: publications.status })
+    .from(publicationReports).innerJoin(publications, eq(publicationReports.publicationId, publications.id))
+    .where(eq(publicationReports.status, "open")).orderBy(desc(publicationReports.createdAt));
   return rows;
 }
 
-export async function resolveReport(db: Db, actor: Actor, reportId: string, outcome: "restore" | "withdraw") {
+/**
+ * hold     — moderator temporarily unpublishes during review (report stays open).
+ * restore  — report dismissed; publication (re)published. Resolves every open report on that publication.
+ * withdraw — publication withdrawn after review, with full withdrawal propagation.
+ */
+export async function resolveReport(db: Db, actor: Actor, reportId: string, outcome: "hold" | "restore" | "withdraw") {
   requirePermission(actor, "moderate");
   const [report] = await db.select().from(publicationReports).where(and(eq(publicationReports.id, reportId), eq(publicationReports.status, "open"))).limit(1);
   if (!report) throw new ApiError("Open report not found", 404);
   const [pub] = await db.select().from(publications).where(eq(publications.id, report.publicationId)).limit(1);
   if (!pub) throw new ApiError("Publication not found", 404);
-  const next: ObservationStatus = outcome === "restore" ? "published" : "withdrawn";
-  assertTransition(OBSERVATION_TRANSITIONS, "reported", next);
   const [src] = await db.select().from(observations).where(eq(observations.id, pub.sourceId)).limit(1);
+  if (!src) throw new ApiError("Publication source not found", 404);
+  const current = src.status as ObservationStatus;
+
+  if (outcome === "hold") {
+    assertTransition(OBSERVATION_TRANSITIONS, current, "reported");
+    await runBatch(db, [
+      db.update(publications).set({ status: "under_investigation" }).where(eq(publications.id, pub.id)),
+      db.update(observations).set({ status: "reported", updatedAt: now() }).where(eq(observations.id, src.id)),
+      notifyStmt(db, src.authorId, "reported", `${pub.id} was temporarily unpublished while a moderator reviews a report.`),
+      auditStmt(db, actor.userId, "report:hold", pub.id)]);
+    return { report_id: report.id, status: "reported" as ObservationStatus };
+  }
+
+  const next: ObservationStatus = outcome === "restore" ? "published" : "withdrawn";
+  // A report dismissed before any hold leaves the publication as it was.
+  if (current !== next) assertTransition(OBSERVATION_TRANSITIONS, current, next);
   await runBatch(db, [
     ...(outcome === "withdraw" ? await propagateWithdrawal(db, [pub.id], actor.userId) : []),
-    db.update(publications).set({ status: outcome === "restore" ? "published" : "withdrawn" }).where(eq(publications.id, pub.id)),
-    db.update(observations).set({ status: next, updatedAt: now() }).where(eq(observations.id, pub.sourceId)),
-    db.update(publicationReports).set({ status: "resolved" }).where(eq(publicationReports.id, report.id)),
-    ...(src ? [notifyStmt(db, src.authorId, next, outcome === "restore" ? `${pub.id} was reviewed and restored.` : `${pub.id} was withdrawn after review.`)] : []),
+    db.update(publications).set({ status: next }).where(eq(publications.id, pub.id)),
+    db.update(observations).set({ status: next, updatedAt: now() }).where(eq(observations.id, src.id)),
+    db.update(publicationReports).set({ status: "resolved" }).where(and(eq(publicationReports.publicationId, pub.id), eq(publicationReports.status, "open"))),
+    ...(current !== next ? [notifyStmt(db, src.authorId, next, outcome === "restore" ? `${pub.id} was reviewed and restored.` : `${pub.id} was withdrawn after review.`)] : []),
     auditStmt(db, actor.userId, `report:${outcome}`, pub.id)]);
   return { report_id: report.id, status: next };
 }

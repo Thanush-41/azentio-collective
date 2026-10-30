@@ -20,7 +20,7 @@ export const moderateSchema = z.object({
 });
 export const withdrawSchema = z.object({ observationId: text(3, 40) });
 export const reportSchema = z.object({ publicationId: text(3, 40), reason: text(5, 500) });
-export const resolveReportSchema = z.object({ reportId: text(3, 40), outcome: z.enum(["restore", "withdraw"]) });
+export const resolveReportSchema = z.object({ reportId: text(3, 40), outcome: z.enum(["hold", "restore", "withdraw"]) });
 export const improvementSchema = z.object({
   title: text(5, 180), problemStatement: text(10, 1000), proposedOutcome: text(10, 1000), owner: text(2, 120),
   priority: z.enum(["Low", "Medium", "High", "Critical"]), offering: offeringField.optional(), themeId: text(3, 40).optional(),
