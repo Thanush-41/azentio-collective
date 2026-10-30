@@ -68,7 +68,8 @@ if (process.env.STAFF_EMAIL && process.env.STAFF_PASSWORD) {
   const me = (await s.call("/api/session")).body;
   check("staff email is verified (real email-code flow)", (me.emailVerified === true || process.env.LOCAL_DEV_SMOKE === "1") && me.memberships.some(m => m.role === "moderator"), me.emailVerified ? "no moderator membership" : "verify the email first");
   if (!me.emailVerified && process.env.LOCAL_DEV_SMOKE !== "1") { console.log("ABORT staff flows: account email is not verified"); console.log(failures ? `\n${failures} check(s) failed` : "\nAll checks passed"); process.exit(failures ? 1 : 0); }
-  const sess = async (role, org) => { const c = (await login()).c; const e = await c.enter(role, org); check(`enter ${role}${org ? ` @ ${org}` : ""}`, e?.status === 200); return c; };
+  // One sign-in (the auth endpoint is rate limited); each workspace session reuses the login cookie.
+  const sess = async (role, org) => { const c = new Client(); c.jar.set("az_auth", s.jar.get("az_auth")); const e = await c.enter(role, org); check(`enter ${role}${org ? ` @ ${org}` : ""}`, e?.status === 200); return c; };
   const meridian = await sess("client_admin", "org-meridian"), northstar = await sess("client_member", "org-northstar"), harbour = await sess("client_member", "org-harbour");
   const mod = await sess("moderator"), po = await sess("product_owner"), emp = await sess("employee"), pubr = await sess("content_publisher");
   const tag = `[smoke ${new Date().toISOString().slice(0, 16)}]`;
