@@ -95,6 +95,8 @@ This is a synthetic hackathon environment. It does **not** claim production Entr
 
 ## Deployment
 
+**Vercel + Turso:** create a Turso database (Vercel dashboard → Storage → Turso, or `turso db create`), set `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` and `PORTAL_STAFF_EMAILS` on the Vercel project, run `node scripts/migrate-libsql.mjs` with the same Turso variables, then `vercel deploy --prod`. `db/index.ts` uses libSQL whenever `TURSO_DATABASE_URL` is set; `vercel.json` builds with plain `next build`.
+
 **Cloudflare (free plan: Workers + D1):** `npx wrangler login`, then `PORTAL_STAFF_EMAILS=you@example.com scripts/deploy-cloudflare.sh`. It builds, creates the D1 database, applies every migration remotely and deploys. Users create an account at `/signin` (email + password, PBKDF2); staff roles go only to emails in `PORTAL_STAFF_EMAILS`.
 
 **OpenAI Sites:** the original target, below.
