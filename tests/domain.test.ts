@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { playerFor } from "@/lib/domain/media";
 import { answerQuestion } from "@/lib/domain/aira";
 import { scanPrivacy } from "@/lib/domain/privacy";
 import { can, CLIENT_ASSIGNABLE_ROLES } from "@/lib/domain/rbac";
@@ -67,5 +68,19 @@ describe("AIRA", () => {
     expect(answerQuestion("seasonality?", [theme], [pub("P1", "a", "T1"), pub("P2", "b", "T1")]).status).toBe("insufficient_evidence");
     expect(answerQuestion("seasonality?", [theme], [pub("P1", "a", null), pub("P2", "b", null), pub("P3", "c", null)]).status).toBe("insufficient_evidence");
     expect(answerQuestion("quantum encryption roadmap", [theme], [pub("P1", "a", "T1"), pub("P2", "b", "T1"), pub("P3", "c", "T1")]).status).toBe("insufficient_evidence");
+  });
+});
+
+describe("recording embeds", () => {
+  it("maps Drive, YouTube, Vimeo and mp4 links to safe players; anything else is a plain link", () => {
+    expect(playerFor("https://drive.google.com/file/d/1AbC_dEf-123/view?usp=sharing")).toMatchObject({ type: "iframe", src: "https://drive.google.com/file/d/1AbC_dEf-123/preview" });
+    expect(playerFor("https://drive.google.com/open?id=XYZ12345")).toMatchObject({ type: "iframe", src: "https://drive.google.com/file/d/XYZ12345/preview" });
+    expect(playerFor("https://youtu.be/dQw4w9WgXcQ")).toMatchObject({ type: "iframe", src: "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ" });
+    expect(playerFor("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toMatchObject({ type: "iframe" });
+    expect(playerFor("https://vimeo.com/123456789")).toMatchObject({ type: "iframe", src: "https://player.vimeo.com/video/123456789" });
+    expect(playerFor("https://cdn.example.com/demo.mp4")).toMatchObject({ type: "video" });
+    expect(playerFor("https://evil.example.com/page")).toMatchObject({ type: "link" });
+    expect(playerFor("http://drive.google.com/file/d/abc/view")).toMatchObject({ type: "link" });
+    expect(playerFor("javascript:alert(1)")).toMatchObject({ type: "link" });
   });
 });

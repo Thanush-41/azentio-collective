@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { AUTH_COOKIE, errorResponse } from "@/lib/portal-auth";
+import { AUTH_COOKIE, currentIdentity, errorResponse } from "@/lib/portal-auth";
 import { ApiError } from "@/lib/services/core";
 import { identityFromToken, issueVerificationCode, signIn, signOut, signUp, verifyEmailCode } from "@/lib/services/auth";
 import { rateLimit } from "@/lib/services/public";
@@ -32,6 +32,14 @@ export async function POST(request: Request) {
     jar.set(AUTH_COOKIE, r.token, cookieOpts);
     const me = await identityFromToken(db, r.token);
     return Response.json({ email: r.email, emailVerified: me?.emailVerified ?? false, emailSent: signup?.verification.emailSent, reason: signup?.verification.reason });
+  } catch (error) { return errorResponse(error); }
+}
+
+// Who is signed in (no provisioning side effects); used by the navigation bar.
+export async function GET() {
+  try {
+    const me = await currentIdentity();
+    return me ? Response.json({ email: me.email, emailVerified: me.emailVerified }) : Response.json({ error: "Not signed in" }, { status: 401 });
   } catch (error) { return errorResponse(error); }
 }
 

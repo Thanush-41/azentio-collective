@@ -179,6 +179,8 @@ if (process.env.STAFF_EMAIL && process.env.STAFF_PASSWORD) {
   check("employee receives the media redirect (302)", empMedia.status === 302);
   check("content lists never expose the raw media URL", !JSON.stringify((await meridian.call("/api/portal?scope=content")).body).includes("example.com/internal") && !JSON.stringify((await emp.call("/api/portal?scope=content")).body).includes("example.com/internal"));
 
+  check("smoke recording archived so no broken demo video remains", (await pubr.act("content_status", { id: rec.body.id, status: "archived" })).status === 200);
+
   // ---- withdrawal within 60 seconds ----
   const t0 = Date.now();
   const wd = await meridian.act("withdraw", { observationId: subs.meridian });

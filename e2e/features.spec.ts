@@ -119,3 +119,27 @@ test("hackathon team space: progress, submission link and a team experiment", as
   await page.getByRole("button", { name: "Mark running" }).first().click();
   await expect(page.getByText("Experiment running.")).toBeVisible();
 });
+
+test("navbar reflects the signed-in state on public pages and signs out", async ({ page }) => {
+  await chooseWorkspace(page, /Meridian Bank · client admin/);
+  await page.goto("/about");
+  const nav = page.locator("header");
+  await expect(nav.getByText("demo@local.test")).toBeVisible();
+  await expect(nav.getByRole("link", { name: "Workspaces" })).toBeVisible();
+  await expect(nav.getByRole("link", { name: "Sign in", exact: true })).toHaveCount(0);
+  await nav.getByRole("button", { name: "Sign out" }).click();
+  await page.waitForURL("/");
+  // (Locally a fixed dev identity always exists, so the signed-out label is only observable in production.)
+});
+
+test("a public recording embeds a Google Drive player; an unavailable one shows a clear message", async ({ page }) => {
+  await chooseWorkspace(page, /Content Publisher · content publisher/);
+  const c = await page.request.post("/api/portal", { data: { action: "create_content", kind: "recording", audience: "public", title: "Walkthrough (Drive)", body: "Product walkthrough", mediaUrl: "https://drive.google.com/file/d/1AbC_dEf-123/view?usp=sharing", publish: true } });
+  expect(c.status()).toBe(201);
+  await page.goto("/media");
+  const card = page.getByRole("article").filter({ hasText: "Walkthrough (Drive)" });
+  await card.getByRole("button", { name: "Play recording" }).click();
+  await expect(card.locator("iframe")).toHaveAttribute("src", "https://drive.google.com/file/d/1AbC_dEf-123/preview");
+  const id = (await c.json()).id;
+  await page.request.post("/api/portal", { data: { action: "content_status", id, status: "archived" } });
+});

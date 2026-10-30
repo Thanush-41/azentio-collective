@@ -17,8 +17,8 @@ test("create an account, sign out and back in; wrong password is rejected", asyn
   await page.getByRole("button", { name: "Skip for now" }).click();
   await page.waitForURL(/\/login/);
   await expect(page.getByText("Verify your email")).toBeVisible();
-  await page.getByRole("button", { name: "Sign out" }).click();
-  await page.waitForURL(/\/signin/);
+  await page.locator("header").getByRole("button", { name: "Sign out" }).click();
+  await page.goto("/signin");
   await page.getByLabel("Work email").fill(email);
   await page.getByLabel(/Password/).fill("wrong password!!");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
