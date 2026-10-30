@@ -73,6 +73,8 @@ Open `http://127.0.0.1:5173/signin-with-chatgpt?return_to=/login` for the local 
 5. Switch to **Northstar Finance** to confirm tenant isolation, report a publication (it is temporarily unpublished), or withdraw one of your own (consent revoked, retrieval excluded immediately).
 6. Reloading the scenario never revives withdrawn records; it creates fresh synthetic records.
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for diagrams. CI runs lint, unit/acceptance tests, build and Playwright on every push (`.github/workflows/ci.yml`).
+
 ## Access model
 
 - `profiles`, `memberships`, `invitations` back every session. `/api/session` accepts **only a membership id**; the server checks that the membership belongs to the authenticated user and is active, then derives role and organisation from the membership row. Revoking a membership ends access on the next request.
