@@ -12,8 +12,11 @@ test("create an account, sign out and back in; wrong password is rejected", asyn
   await page.getByLabel("Work email").fill(email);
   await page.getByLabel(/Password/).fill("correct horse battery");
   await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page.getByText("Check your email")).toBeVisible();
+  await expect(page.getByText(/could not send a verification email/)).toBeVisible();
+  await page.getByRole("button", { name: "Skip for now" }).click();
   await page.waitForURL(/\/login/);
-  await expect(page.getByRole("button", { name: /Meridian Bank/ }).first()).toBeVisible();
+  await expect(page.getByText("Verify your email")).toBeVisible();
   await page.getByRole("button", { name: "Sign out" }).click();
   await page.waitForURL(/\/signin/);
   await page.getByLabel("Work email").fill(email);

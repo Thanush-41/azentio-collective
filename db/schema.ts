@@ -35,6 +35,7 @@ export const publications = sqliteTable("shared_publications", {
   id: text("id").primaryKey(), sourceId: text("source_id").notNull(), approvedText: text("approved_text").notNull(),
   offering: text("offering").notNull(), industry: text("industry").notNull(), region: text("region").notNull(),
   observationPeriod: text("observation_period").notNull(), version: integer("version").notNull().default(1),
+  attribution: text("attribution"),
   status: text("status").notNull().default("published"), publishedAt: text("published_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [uniqueIndex("publications_source_idx").on(table.sourceId)]);
 
@@ -82,6 +83,7 @@ export const memberships = sqliteTable("memberships", {
 export const invitations = sqliteTable("invitations", {
   id: text("id").primaryKey(), orgId: text("org_id").notNull(), email: text("email").notNull(), role: text("role").notNull(),
   status: text("status").notNull().default("pending"), invitedBy: text("invited_by").notNull(),
+  tokenHash: text("token_hash").notNull().default(""), expiresAt: text("expires_at").notNull().default(""),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -145,7 +147,7 @@ export const supportGrants = sqliteTable("support_grants", {
 // kind: broadcast | release_note | knowledge | resource. audience: public | client | employee.
 export const contentItems = sqliteTable("content_items", {
   id: text("id").primaryKey(), kind: text("kind").notNull(), audience: text("audience").notNull(), orgId: text("org_id"),
-  title: text("title").notNull(), body: text("body").notNull(), status: text("status").notNull().default("draft"), authorId: text("author_id").notNull(),
+  title: text("title").notNull(), body: text("body").notNull(), mediaUrl: text("media_url"), status: text("status").notNull().default("draft"), authorId: text("author_id").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -175,10 +177,17 @@ export const teamMembers = sqliteTable("team_members", {
 
 export const credentials = sqliteTable("credentials", {
   userId: text("user_id").primaryKey(), email: text("email").notNull(), salt: text("salt").notNull(), hash: text("hash").notNull(),
+  emailVerifiedAt: text("email_verified_at"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [uniqueIndex("credentials_email_idx").on(table.email)]);
 
 export const authSessions = sqliteTable("auth_sessions", {
   token: text("token").primaryKey(), userId: text("user_id").notNull(), expiresAt: text("expires_at").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+// Single-use, expiring email ownership codes (hashed at rest).
+export const emailVerifications = sqliteTable("email_verifications", {
+  id: text("id").primaryKey(), userId: text("user_id").notNull(), codeHash: text("code_hash").notNull(), expiresAt: text("expires_at").notNull(),
+  attempts: integer("attempts").notNull().default(0), consumedAt: text("consumed_at"), createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

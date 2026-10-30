@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Actor, Db } from "@/lib/services/core";
-import { createSession, inviteMember, listMemberships, provisionUser, resolveSession, revokeMembership } from "@/lib/services/identity";
+import { acceptInvitation, createSession, inviteMember, listMemberships, provisionUser, resolveSession, revokeMembership, revokeInvitation } from "@/lib/services/identity";
 import * as obs from "@/lib/services/observations";
 import * as learn from "@/lib/services/learning";
 import * as imp from "@/lib/services/improvements";
+import * as adm from "@/lib/services/admin";
 import { rateLimit } from "@/lib/services/public";
-import { CLOSED, createTestDb, obsInput, OPEN, signIn } from "./helpers";
+import { CLOSED, createTestDb, obsInput, signIn } from "./helpers";
 
 let db: Db;
 let meridian: Actor, northstar: Actor, moderator: Actor, owner: Actor, employee: Actor;
@@ -38,8 +39,13 @@ describe("1. identity and privilege escalation", () => {
   it("does not grant staff roles to ordinary signed-in users in production mode", async () => {
     await provisionUser(db, { userId: "plain", email: "plain@x.dev" }, CLOSED);
     expect(await listMemberships(db, "plain")).toEqual([]);
-    await provisionUser(db, { userId: "staff", email: "Staff@X.dev" }, { ...CLOSED, staffEmails: ["staff@x.dev"] });
-    expect((await listMemberships(db, "staff")).map(m => m.role).sort()).toEqual(["content_publisher", "employee", "moderator", "product_owner"]);
+    const staffOpts = { ...CLOSED, staffEmails: ["staff@x.dev"] };
+    await provisionUser(db, { userId: "staff-unverified", email: "Staff@X.dev", emailVerified: false }, staffOpts);
+    expect(await listMemberships(db, "staff-unverified")).toEqual([]);
+    await provisionUser(db, { userId: "staff", email: "Staff@X.dev", emailVerified: true }, staffOpts);
+    expect((await listMemberships(db, "staff")).map(m => m.role).sort()).toEqual(["client_admin", "client_member", "content_publisher", "employee", "moderator", "product_owner"]);
+    await provisionUser(db, { userId: "other", email: "other@x.dev", emailVerified: true }, staffOpts);
+    expect(await listMemberships(db, "other")).toEqual([]);
   });
   it("moderator actions are forbidden to client roles", async () => {
     const { observation_id } = await obs.createObservation(db, meridian, obsInput(), true);
@@ -51,7 +57,13 @@ describe("1. identity and privilege escalation", () => {
     await expect(inviteMember(db, meridian, { email: "x@y.dev", role: "moderator" as never })).rejects.toSatisfy(e => status(e) === 403);
     await rejects403(inviteMember(db, northstar, { email: "x@y.dev", role: "client_member" }));
     await inviteMember(db, meridian, { email: "new@y.dev", role: "client_member" });
+    const inv = await inviteMember(db, meridian, { email: "new@y.dev", role: "client_member" });
     await provisionUser(db, { userId: "u-new", email: "new@y.dev" }, CLOSED);
+    expect(await listMemberships(db, "u-new")).toEqual([]); // an invitation alone grants nothing until accepted with its token
+    await expect(acceptInvitation(db, { userId: "u-new", email: "new@y.dev" }, "wrong-token-wrong-token-wrong")).rejects.toMatchObject({ status: 400 });
+    await expect(acceptInvitation(db, { userId: "u-evil", email: "evil@y.dev" }, inv.token)).rejects.toMatchObject({ status: 403 });
+    await acceptInvitation(db, { userId: "u-new", email: "new@y.dev" }, inv.token);
+    await expect(acceptInvitation(db, { userId: "u-new", email: "new@y.dev" }, inv.token)).rejects.toMatchObject({ status: 400 }); // single use
     const m = (await listMemberships(db, "u-new"))[0];
     expect(m.orgId).toBe("org-meridian");
     const { token } = await createSession(db, { userId: "u-new", email: "new@y.dev" }, m.id);
@@ -69,11 +81,12 @@ describe("2. tenant isolation and visibility", () => {
     expect(await obs.listObservations(db, northstar)).toHaveLength(0);
   });
   it("author-private drafts are hidden from other members of the same organisation", async () => {
-    const colleague = await signIn(db, "u-colleague", "client_member", "org-meridian").catch(async () => {
-      await inviteMember(db, meridian, { email: "u-colleague@test.dev", role: "client_member" });
-      await provisionUser(db, { userId: "u-colleague", email: "u-colleague@test.dev" }, OPEN);
-      return signIn(db, "u-colleague", "client_member", "org-meridian");
-    });
+    const inv = await inviteMember(db, meridian, { email: "u-colleague@test.dev", role: "client_member" });
+    await provisionUser(db, { userId: "u-colleague", email: "u-colleague@test.dev" }, CLOSED);
+    await acceptInvitation(db, { userId: "u-colleague", email: "u-colleague@test.dev" }, inv.token);
+    const m = (await listMemberships(db, "u-colleague"))[0];
+    const { token } = await createSession(db, { userId: "u-colleague", email: "u-colleague@test.dev" }, m.id);
+    const colleague = await resolveSession(db, "u-colleague", "u-colleague@test.dev", token);
     const priv = await obs.createObservation(db, meridian, obsInput({ sharingIntent: "private" }), false);
     const shared = await obs.createObservation(db, meridian, obsInput({ sharingIntent: "organization" }), false);
     const ids = (await obs.listObservations(db, colleague)).map(o => o.id);
@@ -266,5 +279,61 @@ describe("8. rate limiting", () => {
     for (let i = 0; i < 3; i++) await rateLimit(db, "k", 3, 60, 1_000_000);
     await expect(rateLimit(db, "k", 3, 60, 1_000_000)).rejects.toMatchObject({ status: 429 });
     await expect(rateLimit(db, "k", 3, 60, 1_000_000 + 61_000)).resolves.toBeUndefined();
+  });
+});
+
+describe("9. invitations, shared metadata, attribution, withdrawal propagation", () => {
+  it("revoked or expired invitations cannot be accepted; revoke is organisation-scoped", async () => {
+    const inv = await inviteMember(db, meridian, { email: "a@y.dev", role: "client_member" });
+    await rejects403(revokeInvitation(db, northstar, inv.id));
+    await revokeInvitation(db, meridian, inv.id);
+    await expect(acceptInvitation(db, { userId: "u-a", email: "a@y.dev" }, inv.token)).rejects.toMatchObject({ status: 400 });
+    await expect(revokeInvitation(db, meridian, inv.id)).rejects.toMatchObject({ status: 409 });
+    const inv2 = await inviteMember(db, meridian, { email: "b@y.dev", role: "client_member" });
+    const { invitations } = await import("@/db/schema");
+    const { eq } = await import("drizzle-orm");
+    await db.update(invitations).set({ expiresAt: new Date(Date.now() - 1000).toISOString() }).where(eq(invitations.id, inv2.id));
+    await expect(acceptInvitation(db, { userId: "u-b", email: "b@y.dev" }, inv2.token)).rejects.toMatchObject({ status: 400 });
+  });
+  it("shared copies take only allow-listed metadata and moderator overrides; free-text metadata is rejected", async () => {
+    const { observation_id } = await obs.createObservation(db, meridian, obsInput({ region: "Pune branch of Acme Ltd", observationPeriod: "June 3rd" }), true);
+    const base = { observationId: observation_id, decision: "publish" as const, reason: "ok", approvedText: "Sanitised text for sharing.", acknowledgeFlags: false };
+    await expect(obs.moderate(db, moderator, base)).rejects.toMatchObject({ status: 400 });
+    const r = await obs.moderate(db, moderator, { ...base, metadata: { region: "India", observationPeriod: "2026-Q3" } });
+    expect(r.status).toBe("published");
+    const shared = (await learn.getLearning(db, employee)).publications[0];
+    expect(shared.region).toBe("India");
+    expect(JSON.stringify(shared)).not.toMatch(/Pune|Acme|June/);
+  });
+  it("attribution is shown only with granted consent AND moderator opt-in", async () => {
+    const a = await obs.createObservation(db, meridian, obsInput({ allowAttribution: false }), true);
+    await expect(obs.moderate(db, moderator, { observationId: a.observation_id, decision: "publish", reason: "ok", approvedText: "Text for sharing here.", acknowledgeFlags: false, attribute: true })).rejects.toMatchObject({ status: 409 });
+    const b = await obs.createObservation(db, meridian, obsInput({ allowAttribution: true }), true);
+    await obs.moderate(db, moderator, { observationId: b.observation_id, decision: "publish", reason: "ok", approvedText: "Attributed text for sharing.", acknowledgeFlags: false, attribute: true });
+    await obs.moderate(db, moderator, { observationId: a.observation_id, decision: "publish", reason: "ok", approvedText: "Anonymous text for sharing.", acknowledgeFlags: false });
+    const pubs = (await learn.getLearning(db, employee)).publications;
+    expect(pubs.filter(p => p.attribution === "Meridian Bank")).toHaveLength(1);
+    expect(pubs.filter(p => p.attribution === null)).toHaveLength(1);
+  });
+  it("withdrawal propagates: comments and bookmarks are removed, improvements flag insufficient evidence and vanish from client views", async () => {
+    await learn.seedScenario(db, moderator);
+    const { publications, theme } = await learn.getLearning(db, employee);
+    const created = await imp.createImprovement(db, owner, { title: "Seasonality-aware comparison", problemStatement: "Seasonal cash flows lack context.", proposedOutcome: "Explain like-for-like comparisons.", owner: "Team", priority: "High", themeId: theme!.id, evidenceIds: publications.map(p => p.id) });
+    const mine = (await obs.listObservations(db, meridian)).find(o => o.authorId?.startsWith("synthetic-"))!;
+    const { publications: pubTable, comments: commentTable, bookmarks: bookmarkTable } = await import("@/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const [target] = await db.select().from(pubTable).where(eq(pubTable.sourceId, mine.id));
+    await adm.addComment(db, northstar, target.id, "Agree with this");
+    await adm.addBookmark(db, northstar, { kind: "publication", ref: target.id, label: "x" });
+    expect((await imp.listImprovements(db, meridian))).toHaveLength(1);
+    await obs.withdraw(db, meridian, mine.id);
+    const staff = (await imp.listImprovements(db, owner)).find(i => i.id === created.id)! as unknown as { evidenceIds: string; evidenceStatus: string; withdrawnEvidence: number };
+    expect(staff).toMatchObject({ evidenceStatus: "insufficient_evidence", withdrawnEvidence: 1 });
+    expect(staff.evidenceIds.split(",")).toHaveLength(2);
+    expect(await imp.listImprovements(db, meridian)).toHaveLength(0);
+    expect(await imp.listImprovements(db, northstar)).toHaveLength(0);
+    expect((await imp.listNotifications(db, owner)).notifications.some(n => n.event === "evidence_withdrawn")).toBe(true);
+    expect(await db.select().from(commentTable).where(eq(commentTable.publicationId, target.id))).toHaveLength(0);
+    expect(await db.select().from(bookmarkTable).where(eq(bookmarkTable.ref, target.id))).toHaveLength(0);
   });
 });

@@ -1,7 +1,7 @@
 import { kindOf, type Role } from "./rbac";
 
 export type ContentLike = { audience: string; orgId: string | null; status: string; authorId: string };
-export const CONTENT_KINDS = ["broadcast", "release_note", "knowledge", "resource"] as const;
+export const CONTENT_KINDS = ["broadcast", "release_note", "knowledge", "resource", "recording"] as const;
 export const CONTENT_AUDIENCES = ["public", "client", "employee"] as const;
 
 /** Audience rules: employee content never reaches clients; client resources with an orgId are tenant-scoped. */

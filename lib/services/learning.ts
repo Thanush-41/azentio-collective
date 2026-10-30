@@ -12,7 +12,7 @@ export type Filters = { offering?: string; industry?: string; region?: string; p
 /** Approved, currently-retrievable publications only, with the evidence-to-theme links. Organisation ids never leave this module. */
 async function retrieve(db: Db, filters: Filters) {
   const rows = await db.select({ id: publications.id, approvedText: publications.approvedText, offering: publications.offering, industry: publications.industry,
-    region: publications.region, observationPeriod: publications.observationPeriod, publishedAt: publications.publishedAt, version: publications.version, orgId: observations.orgId })
+    region: publications.region, observationPeriod: publications.observationPeriod, publishedAt: publications.publishedAt, version: publications.version, attribution: publications.attribution, orgId: observations.orgId })
     .from(publications).innerJoin(observations, eq(publications.sourceId, observations.id))
     .where(and(eq(publications.status, "published"), eq(observations.status, "published"))).orderBy(desc(publications.publishedAt));
   const links = await db.select().from(themeEvidence);

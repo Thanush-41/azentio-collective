@@ -22,3 +22,26 @@ describe("email/password auth", () => {
     expect(await listMemberships(db, a.userId)).toEqual([]);
   });
 });
+
+describe("email verification", () => {
+  it("requires the emailed single-use code; wrong, reused or superseded codes fail", async () => {
+    const { issueVerificationCode, verifyEmailCode } = await import("@/lib/services/auth");
+    const db = await createTestDb();
+    let sent = "";
+    const mail = async (_to: string, _s: string, text: string) => { sent = /(\d{6})/.exec(text)![1]; return { accepted: true }; };
+    const a = await signUp(db, { email: "v@user.dev", password: "correct horse battery", name: "V" }, mail);
+    expect((await identityFromToken(db, a.token))?.emailVerified).toBe(false);
+    const first = sent;
+    await expect(verifyEmailCode(db, a.userId, first === "000000" ? "111111" : "000000")).rejects.toMatchObject({ status: 400 });
+    await issueVerificationCode(db, a.userId, a.email, mail); // supersedes the first code
+    if (sent !== first) await expect(verifyEmailCode(db, a.userId, first)).rejects.toMatchObject({ status: 400 });
+    await verifyEmailCode(db, a.userId, sent);
+    expect((await identityFromToken(db, a.token))?.emailVerified).toBe(true);
+    await expect(verifyEmailCode(db, a.userId, sent)).rejects.toMatchObject({ status: 400 }); // single use
+  });
+  it("reports honestly when no provider is configured", async () => {
+    const db = await createTestDb();
+    const a = await signUp(db, { email: "n@user.dev", password: "correct horse battery", name: "N" });
+    expect(a.verification.emailSent).toBe(false);
+  });
+});

@@ -23,6 +23,14 @@ for (const vp of viewports) {
       const nav = page.getByRole("navigation", { name: "Workspace navigation" });
       const sidebar = page.locator("aside nav");
       await expect(vp.width < 1024 ? nav : sidebar).toBeVisible();
+      if (vp.width < 1024) {
+        // Every destination must sit fully inside the viewport (no clipping).
+        for (const link of await nav.getByRole("link").all()) {
+          const box = (await link.boundingBox())!;
+          expect(box.x).toBeGreaterThanOrEqual(0);
+          expect(box.x + box.width).toBeLessThanOrEqual(vp.width + 1);
+        }
+      }
       await (vp.width < 1024 ? nav : sidebar).getByRole("link", { name: "My observations" }).click();
       await expect(page).toHaveURL(/\/client\/observations/);
     });

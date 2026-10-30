@@ -11,14 +11,15 @@ export const OBSERVATION_TRANSITIONS: Record<ObservationStatus, ObservationStatu
   withdrawn: [],
 };
 
-export type ImprovementStatus = "Under review" | "Planned" | "In progress" | "Released" | "Declined";
-export const IMPROVEMENT_STATUSES: ImprovementStatus[] = ["Under review", "Planned", "In progress", "Released", "Declined"];
+export type ImprovementStatus = "Proposed" | "Under review" | "Planned" | "In progress" | "Released" | "Not proceeding";
+export const IMPROVEMENT_STATUSES: ImprovementStatus[] = ["Proposed", "Under review", "Planned", "In progress", "Released", "Not proceeding"];
 export const IMPROVEMENT_TRANSITIONS: Record<ImprovementStatus, ImprovementStatus[]> = {
-  "Under review": ["Planned", "Declined"],
-  Planned: ["In progress", "Declined"],
+  Proposed: ["Under review", "Not proceeding"],
+  "Under review": ["Planned", "Not proceeding"],
+  Planned: ["In progress", "Not proceeding"],
   "In progress": ["Released", "Planned"],
   Released: [],
-  Declined: [],
+  "Not proceeding": [],
 };
 
 export function canTransition<S extends string>(map: Record<S, S[]>, from: S, to: S) {

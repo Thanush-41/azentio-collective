@@ -29,12 +29,17 @@ describe("privacy scan", () => {
 });
 
 describe("validation", () => {
-  const base = { offering: "FAI", title: "Title", industry: "Banking", region: "India", observationPeriod: "2026-Q3", evidenceType: "Synthetic", confidence: "Medium", description: "A long enough description.", sharingIntent: "private" };
+  const base = { offering: "Financial Analysis Intelligence", title: "Title", industry: "Banking", region: "India", observationPeriod: "2026-Q3", evidenceType: "Synthetic", confidence: "Medium", description: "A long enough description.", sharingIntent: "private" };
   it("rejects over-long strings instead of truncating", () => expect(createObservationSchema.safeParse({ ...base, description: "x".repeat(3001) }).success).toBe(false));
   it("rejects invalid enums", () => {
     expect(createObservationSchema.safeParse({ ...base, confidence: "Certain" }).success).toBe(false);
     expect(createObservationSchema.safeParse({ ...base, sharingIntent: "public" }).success).toBe(false);
     expect(createObservationSchema.safeParse(base).success).toBe(true);
+  });
+  it("shared-metadata fields accept only controlled values", () => {
+    expect(createObservationSchema.safeParse({ ...base, region: "Pune branch" }).success).toBe(false);
+    expect(createObservationSchema.safeParse({ ...base, observationPeriod: "last Tuesday" }).success).toBe(false);
+    expect(createObservationSchema.safeParse({ ...base, offering: "Secret roadmap product" }).success).toBe(false);
   });
   it("client invitations cannot name staff roles", () => {
     expect(inviteSchema.safeParse({ email: "a@b.co", role: "moderator" }).success).toBe(false);

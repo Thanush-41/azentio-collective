@@ -2,7 +2,7 @@ import { getDb } from "@/db";
 import { errorResponse, requirePortalSession } from "@/lib/portal-auth";
 import * as s from "@/lib/domain/schemas";
 import { ApiError } from "@/lib/services/core";
-import { inviteMember, listOrgMembers, revokeMembership } from "@/lib/services/identity";
+import { inviteMember, listOrgMembers, revokeInvitation, revokeMembership } from "@/lib/services/identity";
 import * as obs from "@/lib/services/observations";
 import * as learn from "@/lib/services/learning";
 import * as imp from "@/lib/services/improvements";
@@ -61,6 +61,7 @@ export async function POST(request: Request) {
       case "improvement_status": return Response.json(await imp.updateImprovementStatus(db, actor, s.improvementStatusSchema.parse(rest)));
       case "mark_read": return Response.json(await imp.markRead(db, actor, s.markReadSchema.parse(rest).ids));
       case "invite_member": return Response.json(await inviteMember(db, actor, s.inviteSchema.parse(rest)), { status: 201 });
+      case "revoke_invitation": return Response.json(await revokeInvitation(db, actor, s.revokeInviteSchema.parse(rest).invitationId));
       case "revoke_membership": return Response.json(await revokeMembership(db, actor, s.revokeSchema.parse(rest).membershipId));
       case "create_theme": return Response.json(await adm.createTheme(db, actor, s.themeSchema.parse(rest)), { status: 201 });
       case "link_evidence": { const i = s.linkEvidenceSchema.parse(rest); return Response.json(await adm.linkEvidence(db, actor, i.themeId, i.publicationId)); }

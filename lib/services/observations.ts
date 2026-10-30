@@ -1,6 +1,8 @@
-import { and, desc, eq, or } from "drizzle-orm";
-import { consents, moderationReviews, observations, publicationReports, publications, themeEvidence, themes } from "@/db/schema";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { bookmarks, comments, consents, improvementEvidence, moderationReviews, observations, organizations, publicationReports, publications, themeEvidence, themes } from "@/db/schema";
 import { kindOf } from "@/lib/domain/rbac";
+import { industryField, offeringField, periodField, regionField } from "@/lib/domain/taxonomy";
+import { z } from "zod";
 import { scanPrivacy } from "@/lib/domain/privacy";
 import { canReadObservation, isModerationEligible } from "@/lib/domain/visibility";
 import { assertTransition, OBSERVATION_TRANSITIONS, type ObservationStatus } from "@/lib/domain/workflow";
@@ -133,7 +135,7 @@ export async function consentHistory(db: Db, actor: Actor, id: string) {
   return rows.filter(r => kindOf(actor.role) === "client" || ["processing", "community_sharing"].includes(r.type)).map(r => ({ id: r.id, type: r.type, state: r.state, policyVersion: r.policyVersion, createdAt: r.createdAt }));
 }
 
-export type ModerateInput = { observationId: string; decision: "publish" | "clarify" | "reject"; reason: string; approvedText?: string; themeId?: string; acknowledgeFlags: boolean };
+export type ModerateInput = { observationId: string; decision: "publish" | "clarify" | "reject"; reason: string; approvedText?: string; themeId?: string; acknowledgeFlags: boolean; attribute?: boolean; metadata?: Partial<{ offering: string; industry: string; region: string; observationPeriod: string }> };
 export async function moderate(db: Db, actor: Actor, input: ModerateInput) {
   requirePermission(actor, "moderate");
   const [source] = await db.select().from(observations).where(eq(observations.id, input.observationId)).limit(1);
@@ -162,11 +164,21 @@ export async function moderate(db: Db, actor: Actor, input: ModerateInput) {
     const [t] = await db.select().from(themes).where(eq(themes.id, input.themeId)).limit(1);
     if (!t) throw new ApiError("Theme not found", 404);
   }
+  // Only allow-listed, reviewed values reach the shared copy; the moderator can override each one explicitly.
+  const metaSchema = z.object({ offering: offeringField, industry: industryField, region: regionField, observationPeriod: periodField });
+  const meta = metaSchema.safeParse({ offering: source.offering, industry: source.industry, region: source.region, observationPeriod: source.observationPeriod, ...(input.metadata ?? {}) });
+  if (!meta.success) throw new ApiError(`Shared metadata must use approved values (${meta.error.issues.map(i => i.path.join(".")).join(", ")}); set them explicitly`, 400);
+  let attribution: string | null = null;
+  if (input.attribute) {
+    if (state.get("attribution") !== "granted") throw new ApiError("The contributor has not consented to attribution", 409);
+    const [org] = await db.select().from(organizations).where(eq(organizations.id, source.orgId)).limit(1);
+    attribution = org?.name ?? null;
+  }
   const [existing] = await db.select().from(publications).where(eq(publications.sourceId, source.id)).limit(1);
   const pubId = existing?.id ?? uid("PUB"), version = (existing?.version ?? 0) + 1;
   const pubStmt = existing
-    ? db.update(publications).set({ approvedText, offering: source.offering, industry: source.industry, region: source.region, observationPeriod: source.observationPeriod, version, status: "published", publishedAt: now() }).where(eq(publications.id, pubId))
-    : db.insert(publications).values({ id: pubId, sourceId: source.id, approvedText, offering: source.offering, industry: source.industry, region: source.region, observationPeriod: source.observationPeriod });
+    ? db.update(publications).set({ approvedText, ...meta.data, attribution, version, status: "published", publishedAt: now() }).where(eq(publications.id, pubId))
+    : db.insert(publications).values({ id: pubId, sourceId: source.id, approvedText, ...meta.data, attribution });
   await runBatch(db, [pubStmt,
     ...(input.themeId ? [db.insert(themeEvidence).values({ themeId: input.themeId, publicationId: pubId }).onConflictDoNothing()] : []),
     db.update(observations).set({ status: "published", updatedAt: now() }).where(eq(observations.id, source.id)),
@@ -176,12 +188,28 @@ export async function moderate(db: Db, actor: Actor, input: ModerateInput) {
   return { publication_id: pubId, status: "published", version, visibility: "approved_community" };
 }
 
+/** Removes derived artefacts of withdrawn publications (comments, bookmarks) and alerts product owners whose improvements cite them. */
+async function propagateWithdrawal(db: Db, publicationIds: string[], actorId: string): Promise<Stmt[]> {
+  if (!publicationIds.length) return [];
+  const stmts: Stmt[] = [];
+  const cited = await db.select({ id: improvementEvidence.improvementId }).from(improvementEvidence).where(inArray(improvementEvidence.publicationId, publicationIds));
+  const owners = cited.length ? await usersWithRole(db, ["product_owner"]) : [];
+  for (const pid of publicationIds) {
+    stmts.push(db.delete(comments).where(eq(comments.publicationId, pid)), db.delete(bookmarks).where(and(eq(bookmarks.kind, "publication"), eq(bookmarks.ref, pid))));
+  }
+  for (const o of owners) stmts.push(notifyStmt(db, o, "evidence_withdrawn", `Evidence cited by ${new Set(cited.map(c => c.id)).size} improvement idea(s) was withdrawn. Review their evidence.`));
+  stmts.push(auditStmt(db, actorId, "propagate_withdrawal", publicationIds.join(","), `${cited.length} improvement citation(s)`));
+  return stmts;
+}
+
 export async function withdraw(db: Db, actor: Actor, id: string) {
   requirePermission(actor, "observation:write");
   const row = await loadOwned(db, actor, id);
   if (row.authorId !== actor.userId && actor.role !== "client_admin") throw new ApiError("Only the author or a client administrator can withdraw", 403);
   assertTransition(OBSERVATION_TRANSITIONS, row.status as ObservationStatus, "withdrawn");
+  const pubRows = await db.select({ id: publications.id }).from(publications).where(eq(publications.sourceId, id));
   await runBatch(db, [
+    ...await propagateWithdrawal(db, pubRows.map(p => p.id), actor.userId),
     db.update(observations).set({ status: "withdrawn", updatedAt: now() }).where(eq(observations.id, id)),
     db.update(publications).set({ status: "withdrawn" }).where(eq(publications.sourceId, id)),
     db.insert(consents).values({ id: uid("CON"), observationId: id, type: "community_sharing", state: "revoked", policyVersion: POLICY_VERSION, actorId: actor.userId }),
@@ -222,6 +250,7 @@ export async function resolveReport(db: Db, actor: Actor, reportId: string, outc
   assertTransition(OBSERVATION_TRANSITIONS, "reported", next);
   const [src] = await db.select().from(observations).where(eq(observations.id, pub.sourceId)).limit(1);
   await runBatch(db, [
+    ...(outcome === "withdraw" ? await propagateWithdrawal(db, [pub.id], actor.userId) : []),
     db.update(publications).set({ status: outcome === "restore" ? "published" : "withdrawn" }).where(eq(publications.id, pub.id)),
     db.update(observations).set({ status: next, updatedAt: now() }).where(eq(observations.id, pub.sourceId)),
     db.update(publicationReports).set({ status: "resolved" }).where(eq(publicationReports.id, report.id)),

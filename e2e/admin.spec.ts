@@ -4,17 +4,17 @@ import { chooseWorkspace } from "./helpers";
 test("product owner administers entitlements and the client sees them", async ({ page }) => {
   await chooseWorkspace(page, /Product Owner · product owner/);
   await page.goto("/employee/entitlements");
-  const box = page.getByLabel("Northstar Finance CMP");
+  const box = page.getByRole("switch", { name: "Northstar Finance CMP" });
   await box.click();
-  await expect(box).toBeChecked();
+  await expect(box).toHaveAttribute("aria-checked", "true");
   await chooseWorkspace(page, /Northstar Finance · client member/);
   await page.goto("/client/dashboard");
   await expect(page.getByText("Compliance Intelligence")).toBeVisible();
   // Restore so later tests start from the seeded entitlements.
   await chooseWorkspace(page, /Product Owner · product owner/);
   await page.goto("/employee/entitlements");
-  await page.getByLabel("Northstar Finance CMP").click();
-  await expect(page.getByLabel("Northstar Finance CMP")).not.toBeChecked();
+  await page.getByRole("switch", { name: "Northstar Finance CMP" }).click();
+  await expect(page.getByRole("switch", { name: "Northstar Finance CMP" })).toHaveAttribute("aria-checked", "false");
 });
 
 test("moderator authors a theme", async ({ page }) => {
@@ -67,4 +67,26 @@ test("employee lab: experiment and team space", async ({ page }) => {
   await page.getByLabel("Team name").fill("Team Alpha");
   await page.getByRole("button", { name: "Create team" }).click();
   await expect(page.getByText("Team Alpha")).toBeVisible();
+});
+
+test("invitations: single-use link accepted by the intended email, revocable while pending", async ({ page }) => {
+  await chooseWorkspace(page, /Meridian Bank · client admin/);
+  await page.goto("/client/members");
+  await page.getByLabel("Work email").fill("demo@local.test");
+  await page.getByRole("button", { name: "Create invitation" }).click();
+  const linkBox = page.locator("div.font-mono");
+  await expect(linkBox).toContainText("/accept-invite?token=");
+  const link = (await linkBox.textContent())!.trim();
+  await page.goto(new URL(link).pathname + new URL(link).search);
+  await page.getByRole("button", { name: "Accept invitation" }).click();
+  await expect(page.getByText(/You joined Meridian Bank/)).toBeVisible();
+  await page.goto(new URL(link).pathname + new URL(link).search);
+  await page.getByRole("button", { name: "Accept invitation" }).click();
+  await expect(page.getByText(/invalid, used, revoked or expired/)).toBeVisible();
+  await page.goto("/client/members");
+  await page.getByLabel("Work email").fill("someone-else@example.invalid");
+  await page.getByRole("button", { name: "Create invitation" }).click();
+  await page.getByRole("button", { name: "Revoke invitation" }).click();
+  await expect(page.getByText("Invitation revoked.")).toBeVisible();
+  await expect(page.getByText(/someone-else@example.invalid.*revoked/)).toBeVisible();
 });

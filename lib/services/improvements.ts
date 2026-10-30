@@ -5,7 +5,7 @@ import { kindOf } from "@/lib/domain/rbac";
 import { assertTransition, IMPROVEMENT_TRANSITIONS, type ImprovementStatus } from "@/lib/domain/workflow";
 import { ApiError, type Actor, type Db, type Stmt, auditStmt, notifyStmt, now, requirePermission, runBatch, uid } from "./core";
 
-export type ImprovementInput = { title: string; problemStatement: string; proposedOutcome: string; owner: string; priority: string; themeId?: string; evidenceIds: string[] };
+export type ImprovementInput = { offering?: string; title: string; problemStatement: string; proposedOutcome: string; owner: string; priority: string; themeId?: string; evidenceIds: string[] };
 
 export async function createImprovement(db: Db, actor: Actor, input: ImprovementInput) {
   requirePermission(actor, "improvement:manage");
@@ -26,7 +26,7 @@ export async function createImprovement(db: Db, actor: Actor, input: Improvement
   const id = uid("IMP");
   const contributors = [...new Set(pubs.map(p => p.authorId).filter(a => !a.startsWith("synthetic-")))];
   await runBatch(db, [
-    db.insert(improvements).values({ id, title: input.title, problemStatement: input.problemStatement, offering: pubs[0].offering, proposedOutcome: input.proposedOutcome, owner: input.owner, priority: input.priority, status: "Under review", evidenceIds: ids.join(",") }),
+    db.insert(improvements).values({ id, title: input.title, problemStatement: input.problemStatement, offering: input.offering ?? pubs[0].offering, proposedOutcome: input.proposedOutcome, owner: input.owner, priority: input.priority, status: "Under review", evidenceIds: ids.join(",") }),
     db.insert(improvementEvidence).values(ids.map(publicationId => ({ improvementId: id, publicationId }))),
     // Contributors are told their evidence was used; no other organisation is named.
     ...contributors.map(c => notifyStmt(db, c, "improvement_created", "An improvement idea now cites your approved contribution.")),
@@ -53,20 +53,37 @@ export async function updateImprovementStatus(db: Db, actor: Actor, input: { imp
   return { id: row.id, status: input.status };
 }
 
+/** Evidence is re-validated on every read: withdrawn or unpublished publications never count or show. */
+async function liveEvidence(db: Db) {
+  const rows = await db.select({ improvementId: improvementEvidence.improvementId, publicationId: improvementEvidence.publicationId, status: publications.status, obsStatus: observations.status, orgId: observations.orgId })
+    .from(improvementEvidence).innerJoin(publications, eq(improvementEvidence.publicationId, publications.id)).innerJoin(observations, eq(publications.sourceId, observations.id));
+  const byImp = new Map<string, { total: number; live: { publicationId: string; orgId: string }[] }>();
+  for (const r of rows) {
+    const e = byImp.get(r.improvementId) ?? { total: 0, live: [] };
+    e.total++; if (r.status === "published" && r.obsStatus === "published") e.live.push({ publicationId: r.publicationId, orgId: r.orgId });
+    byImp.set(r.improvementId, e);
+  }
+  return byImp;
+}
+
 export async function listImprovements(db: Db, actor: Actor) {
   const rows = await db.select().from(improvements).orderBy(desc(improvements.updatedAt));
   const updates = await db.select().from(improvementUpdates).orderBy(desc(improvementUpdates.createdAt));
+  const evidence = await liveEvidence(db);
   const staff = ["product_owner", "employee"].includes(actor.role);
   if (staff) {
-    return rows.map(r => ({ ...r, updates: updates.filter(u => u.improvementId === r.id).map(u => ({ id: u.id, improvementId: u.improvementId, audience: u.audience, body: u.body, createdAt: u.createdAt })) }));
+    return rows.map(r => {
+      const e = evidence.get(r.id) ?? { total: 0, live: [] }, orgs = new Set(e.live.map(l => l.orgId)).size;
+      return { ...r, evidenceIds: e.live.map(l => l.publicationId).join(","), withdrawnEvidence: e.total - e.live.length, evidenceStatus: orgs >= MIN_ORGANISATIONS ? "ok" : "insufficient_evidence",
+        updates: updates.filter(u => u.improvementId === r.id).map(u => ({ id: u.id, improvementId: u.improvementId, audience: u.audience, body: u.body, createdAt: u.createdAt })) };
+    });
   }
   if (kindOf(actor.role) !== "client" || !actor.orgId) throw new ApiError("Not authorised", 403);
-  // Clients see only ideas that cite their own organisation's contribution, with client-audience updates and no other-organisation evidence.
-  const mine = await db.select({ improvementId: improvementEvidence.improvementId }).from(improvementEvidence)
-    .innerJoin(publications, eq(improvementEvidence.publicationId, publications.id)).innerJoin(observations, eq(publications.sourceId, observations.id)).where(eq(observations.orgId, actor.orgId));
-  const allowed = new Set(mine.map(m => m.improvementId));
-  return rows.filter(r => allowed.has(r.id)).map(r => ({ id: r.id, title: r.title, offering: r.offering, status: r.status, updatedAt: r.updatedAt,
-    updates: updates.filter(u => u.improvementId === r.id && u.audience === "client").map(u => ({ id: u.id, audience: u.audience, body: u.body, createdAt: u.createdAt })) }));
+  // Clients see only ideas whose CURRENT evidence includes their organisation and still meets the cohort threshold;
+  // client-audience updates only, no evidence ids and no other organisation's information.
+  return rows.filter(r => { const e = evidence.get(r.id); return !!e && new Set(e.live.map(l => l.orgId)).size >= MIN_ORGANISATIONS && e.live.some(l => l.orgId === actor.orgId); })
+    .map(r => ({ id: r.id, title: r.title, offering: r.offering, status: r.status, owner: r.owner, updatedAt: r.updatedAt,
+      updates: updates.filter(u => u.improvementId === r.id && u.audience === "client").map(u => ({ id: u.id, audience: u.audience, body: u.body, createdAt: u.createdAt })) }));
 }
 
 export async function listNotifications(db: Db, actor: Actor) {

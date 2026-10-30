@@ -11,7 +11,7 @@ class Client {
   jar = new Map();
   async call(path, init = {}) {
     const res = await fetch(BASE + path, { ...init, redirect: "manual", headers: { "Content-Type": "application/json", cookie: [...this.jar].map(([k, v]) => `${k}=${v}`).join("; "), ...(init.headers ?? {}) } });
-    for (const c of res.headers.getSetCookie?.() ?? []) { const [kv] = c.split(";"); const i = kv.indexOf("="); const [k, v] = [kv.slice(0, i), kv.slice(i + 1)]; v ? this.jar.set(k, v) : this.jar.delete(k); }
+    for (const c of res.headers.getSetCookie?.() ?? []) { const [kv] = c.split(";"); const i = kv.indexOf("="); const [k, v] = [kv.slice(0, i), kv.slice(i + 1)]; if (v) this.jar.set(k, v); else this.jar.delete(k); }
     let body = null; try { body = await res.json(); } catch { /* non-json */ }
     return { status: res.status, body };
   }

@@ -62,13 +62,13 @@ export async function hasSupportGrant(db: Db, actor: Actor, orgId: string) {
 }
 
 // ---- Content (broadcasts, release notes, knowledge, client resources) -----
-type ContentInput = { kind: string; audience: string; orgId?: string; title: string; body: string };
+type ContentInput = { kind: string; audience: string; orgId?: string; mediaUrl?: string; title: string; body: string };
 export async function createContent(db: Db, actor: Actor, i: ContentInput, publish: boolean) {
   requirePermission(actor, "content:publish");
   if (i.orgId && i.audience !== "client") throw new ApiError("Organisation-specific content must target the client audience", 400);
   if (i.orgId) { const [o] = await db.select().from(organizations).where(eq(organizations.id, i.orgId)).limit(1); if (!o) throw new ApiError("Organisation not found", 404); }
   const id = uid("CNT");
-  await runBatch(db, [db.insert(contentItems).values({ id, kind: i.kind, audience: i.audience, orgId: i.orgId ?? null, title: i.title, body: i.body, status: publish ? "published" : "draft", authorId: actor.userId }),
+  await runBatch(db, [db.insert(contentItems).values({ id, kind: i.kind, audience: i.audience, orgId: i.orgId ?? null, mediaUrl: i.mediaUrl ?? null, title: i.title, body: i.body, status: publish ? "published" : "draft", authorId: actor.userId }),
     auditStmt(db, actor.userId, publish ? "publish_content" : "draft_content", id, `${i.kind}/${i.audience}`)]);
   return { id, status: publish ? "published" : "draft" };
 }
@@ -82,11 +82,11 @@ export async function setContentStatus(db: Db, actor: Actor, id: string, status:
 export async function listContent(db: Db, actor: Actor) {
   const isPublisher = actor.role === "content_publisher" || actor.role === "product_owner";
   const rows = await db.select().from(contentItems).orderBy(desc(contentItems.createdAt));
-  return rows.filter(r => canReadContent(actor, r, isPublisher)).map(r => ({ id: r.id, kind: r.kind, audience: r.audience, title: r.title, body: r.body, status: r.status, createdAt: r.createdAt }));
+  return rows.filter(r => canReadContent(actor, r, isPublisher)).map(r => ({ id: r.id, kind: r.kind, audience: r.audience, title: r.title, body: r.body, mediaUrl: r.mediaUrl, status: r.status, createdAt: r.createdAt }));
 }
 export async function publicContent(db: Db) {
   const rows = await db.select().from(contentItems).where(and(eq(contentItems.audience, "public"), eq(contentItems.status, "published"))).orderBy(desc(contentItems.createdAt));
-  return rows.map(r => ({ id: r.id, kind: r.kind, title: r.title, body: r.body, createdAt: r.createdAt }));
+  return rows.map(r => ({ id: r.id, kind: r.kind, title: r.title, body: r.body, mediaUrl: r.mediaUrl, createdAt: r.createdAt }));
 }
 
 // ---- Bookmarks, saved searches, comments ----------------------------------

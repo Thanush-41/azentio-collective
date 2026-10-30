@@ -3,9 +3,10 @@ import { z } from "zod";
 import { getDb } from "@/db";
 import { currentIdentity, errorResponse, SESSION_COOKIE } from "@/lib/portal-auth";
 import { ApiError } from "@/lib/services/core";
-import { createSession, listMemberships, provisionOptionsFromEnv, provisionUser } from "@/lib/services/identity";
+import { acceptInvitation, createSession, listMemberships, provisionOptionsFromEnv, provisionUser } from "@/lib/services/identity";
 
 const bodySchema = z.object({ membershipId: z.string().min(3).max(200) }).strict();
+const acceptSchema = z.object({ token: z.string().min(20).max(200) }).strict();
 
 // Lists the memberships the authenticated user actually holds.
 export async function GET() {
@@ -14,7 +15,7 @@ export async function GET() {
     if (!identity) throw new ApiError("Sign in is required", 401);
     const db = getDb();
     await provisionUser(db, identity, provisionOptionsFromEnv(process.env));
-    return Response.json({ memberships: await listMemberships(db, identity.userId) });
+    return Response.json({ memberships: await listMemberships(db, identity.userId), email: identity.email, emailVerified: identity.emailVerified });
   } catch (error) { return errorResponse(error); }
 }
 
@@ -33,4 +34,14 @@ export async function POST(request: Request) {
 export async function DELETE() {
   (await cookies()).delete(SESSION_COOKIE);
   return Response.json({ ok: true });
+}
+
+// Accepts a single-use invitation for the signed-in account whose email matches the invitation.
+export async function PUT(request: Request) {
+  try {
+    const identity = await currentIdentity();
+    if (!identity) throw new ApiError("Sign in is required", 401);
+    const { token } = acceptSchema.parse(await request.json());
+    return Response.json(await acceptInvitation(getDb(), identity, token));
+  } catch (error) { return errorResponse(error); }
 }

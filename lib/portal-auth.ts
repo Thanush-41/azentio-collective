@@ -9,13 +9,23 @@ import { kindOf } from "@/lib/domain/rbac";
 export const SESSION_COOKIE = "az_demo_session";
 export const AUTH_COOKIE = "az_auth";
 
-export async function currentIdentity() {
-  const identity = await getChatGPTUser();
-  if (identity) return identity;
+export type Identity = { userId: string; email: string; displayName: string; fullName: string | null; emailVerified: boolean };
+
+/**
+ * Identity sources, in order:
+ * 1. Our own email/password session cookie (email verified only after a code was confirmed).
+ * 2. Platform identity headers (OpenAI Sites) — ONLY when TRUST_PLATFORM_IDENTITY=1, because any client can forge these headers
+ *    on a host that does not strip them.
+ * 3. A fixed local identity outside production.
+ */
+export async function currentIdentity(): Promise<Identity | null> {
   const token = (await cookies()).get(AUTH_COOKIE)?.value;
   if (token) { const found = await identityFromToken(getDb(), token); if (found) return found; }
-  // Local development only (no cookie, no platform header); never honoured in production.
-  if (process.env.NODE_ENV !== "production") return { userId: "local-demo-user", email: "demo@local.test", displayName: "Local demo", fullName: "Local demo" };
+  if (process.env.TRUST_PLATFORM_IDENTITY === "1") {
+    const platform = await getChatGPTUser();
+    if (platform) return { ...platform, emailVerified: true };
+  }
+  if (process.env.NODE_ENV !== "production") return { userId: "local-demo-user", email: "demo@local.test", displayName: "Local demo", fullName: "Local demo", emailVerified: true };
   return null;
 }
 
@@ -37,5 +47,6 @@ export function errorResponse(error: unknown) {
     return Response.json({ error: "Validation failed", issues: issues.map(i => ({ field: i.path.join("."), message: i.message })) }, { status: 400 });
   }
   if (error instanceof Error && "status" in error && typeof (error as { status: unknown }).status === "number") return Response.json({ error: error.message }, { status: (error as { status: number }).status });
+  console.error("Unhandled API error", error);
   return Response.json({ error: "Unexpected error" }, { status: 500 });
 }
