@@ -5,6 +5,9 @@ test("unknown URLs are a genuine 404, known public URLs are 200, and the build c
   expect((await request.get("/definitely-not-a-page")).status()).toBe(404);
   expect((await request.get("/client/not-a-page")).status()).toBe(404);
   expect((await request.get("/about")).status()).toBe(200);
+  const rec = await request.get("/recordings", { maxRedirects: 0 });
+  expect([301, 302, 307, 308]).toContain(rec.status());
+  expect(rec.headers().location).toContain("/media");
   const v = await request.get("/api/version");
   expect(v.status()).toBe(200);
   expect(typeof (await v.json()).commit).toBe("string");

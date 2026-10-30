@@ -31,10 +31,11 @@ class Client {
 }
 
 const FAI = "Financial Analysis Intelligence";
-for (const path of ["/", "/solutions", "/insights", "/media", "/about", "/register", "/products", "/connect"]) {
+for (const path of ["/", "/lab", "/live", "/solutions", "/insights", "/media", "/about", "/register", "/products", "/connect"]) {
   const r = await fetch(BASE + path, { redirect: "manual" });
   check(`public route ${path} loads without sign-in`, r.status === 200, String(r.status));
 }
+check("/recordings redirects to the public media page", (await fetch(BASE + "/recordings", { redirect: "manual" })).status >= 300 && (await fetch(BASE + "/recordings", { redirect: "manual" })).status < 400);
 check("unknown URL is a genuine 404", (await fetch(BASE + "/no-such-page-" + Date.now(), { redirect: "manual" })).status === 404);
 const ver = await new Client().call("/api/version");
 check("build commit is exposed", ver.status === 200 && typeof ver.body.commit === "string", ver.body?.commit);
@@ -86,6 +87,28 @@ if (process.env.STAFF_EMAIL && process.env.STAFF_PASSWORD) {
   check("Meridian saves a private draft", priv.status === 201 && priv.body.status === "draft");
   check("Northstar cannot read Meridian's record by id (404)", (await northstar.call(`/api/portal?scope=observation&id=${priv.body.observation_id}`)).status === 404);
   check("private draft is not in the moderator queue", !(await mod.call("/api/portal?scope=observations")).body.observations.some(o => o.id === priv.body.observation_id));
+
+  // ---- Invitation acceptance by a real invited user (single-use, email-bound, revocable) ----
+  const inviteeEmail = `smoke-invitee-${Date.now()}@example.invalid`;
+  const invite = await meridian.act("invite_member", { email: inviteeEmail, role: "client_member" });
+  check("client admin issues an invitation token", invite.status === 201 && invite.body.token?.length > 20);
+  const invitee = new Client(), stranger = new Client();
+  await invitee.signUpOrIn(inviteeEmail, pw);
+  await stranger.signUpOrIn(`smoke-stranger-${Date.now()}@example.invalid`, pw);
+  const accept = (c, token) => c.call("/api/session", { method: "PUT", body: JSON.stringify({ token }) });
+  check("invitee has no workspace before accepting", (await invitee.call("/api/session")).body.memberships.length === 0);
+  check("another account cannot use the invitation (403)", (await accept(stranger, invite.body.token)).status === 403);
+  const ok = await accept(invitee, invite.body.token);
+  check("the invited account accepts successfully", ok.status === 200 && ok.body.organization === "Meridian Bank", JSON.stringify(ok.body));
+  const after = (await invitee.call("/api/session")).body.memberships;
+  check("membership is exactly the invited client role in the invited organisation", after.length === 1 && after[0].role === "client_member" && after[0].orgId === "org-meridian");
+  check("the token is single-use (400 on replay)", (await accept(invitee, invite.body.token)).status === 400);
+  check("a replay by another account is also rejected (400)", (await accept(stranger, invite.body.token)).status === 400);
+  await invitee.enter("client_member", "org-meridian");
+  check("invitee cannot run staff or admin actions", (await invitee.act("seed_scenario")).status === 403 && (await invitee.call("/api/portal?scope=members")).status === 403);
+  const inv3 = await meridian.act("invite_member", { email: `smoke-revoked-${Date.now()}@example.invalid`, role: "client_member" });
+  await meridian.act("revoke_invitation", { invitationId: inv3.body.id });
+  check("a revoked invitation token cannot be redeemed (400)", (await accept(stranger, inv3.body.token)).status === 400);
 
   // ---- Gate 2: the three-client learning loop ----
   const theme = await mod.act("create_theme", { title: `Seasonality context ${tag}`, topic: "seasonal SME cash-flow analysis", offering: FAI, summary: "Approved contributions describe inconsistent interpretation of seasonal SME cash flows.", suggestedImprovement: "Add a seasonality-aware comparison explanation." });
