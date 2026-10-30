@@ -95,4 +95,9 @@ This is a synthetic hackathon environment. It does **not** claim production Entr
 
 ## Deployment
 
+**Cloudflare (free plan: Workers + D1):** `npx wrangler login`, then `PORTAL_STAFF_EMAILS=you@example.com scripts/deploy-cloudflare.sh`. It builds, creates the D1 database, applies every migration remotely and deploys. Users create an account at `/signin` (email + password, PBKDF2); staff roles go only to emails in `PORTAL_STAFF_EMAILS`.
+
+**OpenAI Sites:** the original target, below.
+
+
 The project is configured for private OpenAI Sites hosting in `.openai/hosting.json`, with D1 bound as `DB`. Publishing applies committed migrations before the Worker is deployed.

@@ -2,15 +2,19 @@ import { cookies } from "next/headers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
 import { ApiError, type Actor } from "@/lib/services/core";
+import { identityFromToken } from "@/lib/services/auth";
 import { resolveSession } from "@/lib/services/identity";
 import { kindOf } from "@/lib/domain/rbac";
 
 export const SESSION_COOKIE = "az_demo_session";
+export const AUTH_COOKIE = "az_auth";
 
 export async function currentIdentity() {
   const identity = await getChatGPTUser();
   if (identity) return identity;
-  // Local development only; never honoured in production.
+  const token = (await cookies()).get(AUTH_COOKIE)?.value;
+  if (token) { const found = await identityFromToken(getDb(), token); if (found) return found; }
+  // Local development only (no cookie, no platform header); never honoured in production.
   if (process.env.NODE_ENV !== "production") return { userId: "local-demo-user", email: "demo@local.test", displayName: "Local demo", fullName: "Local demo" };
   return null;
 }

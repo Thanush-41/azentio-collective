@@ -24,7 +24,7 @@ async function api(url: string, options?: RequestInit): Promise<Json> {
 
 export function PortalApp() {
   const path = usePathname();
-  const isPublic = ["/", "/products", "/connect", "/hackathon/register", "/login"].includes(path);
+  const isPublic = ["/", "/products", "/connect", "/hackathon/register", "/login", "/signin"].includes(path);
   return <div className="min-h-screen bg-[#f6f7f4] text-[#14231e]"><TopNav publicMode={isPublic} />{isPublic ? <PublicRouter path={path} /> : <WorkspaceRouter path={path} />}</div>;
 }
 
@@ -43,6 +43,7 @@ function PublicRouter({ path }: { path: string }) {
   if (path === "/connect") return <PublicForm kind="demo" />;
   if (path === "/hackathon/register") return <PublicForm kind="hackathon" />;
   if (path === "/login") return <Login />;
+  if (path === "/signin") return <SignIn />;
   return <><Landing /><PublicUpdates /></>;
 }
 
@@ -66,7 +67,7 @@ function PublicForm({ kind }: { kind: "demo" | "hackathon" }) {
 
 function Login() {
   const router = useRouter(), [busy, setBusy] = useState(""), [error, setError] = useState(""), [memberships, setMemberships] = useState<Json[] | null>(null);
-  useEffect(() => { api("/api/session").then(r => setMemberships(r.memberships)).catch(x => { setError(x.message); setMemberships([]); }); }, []);
+  useEffect(() => { api("/api/session").then(r => setMemberships(r.memberships)).catch(x => { if (/Sign in is required/.test(x.message)) router.replace("/signin"); else { setError(x.message); setMemberships([]); } }); }, [router]);
   const icon = (kind: string) => kind === "client" ? <Building2 /> : kind === "moderator" ? <ClipboardCheck /> : kind === "product_owner" ? <Lightbulb /> : <FlaskConical />;
   const blurb: Record<string, string> = { client_admin: "Manage members, submit evidence and follow status.", client_member: "Submit evidence, follow status and browse approved learning.", moderator: "Review private sources and publish de-identified copies.", product_owner: "Turn approved themes into tracked product improvements.", employee: "Explore internal experiments and guided playgrounds." };
   async function choose(id: string) {
@@ -77,7 +78,7 @@ function Login() {
     {error && <div className="mx-auto mt-6 max-w-xl"><Alert text={error} /></div>}
     {memberships?.length === 0 && !error && <div className="mt-10"><Empty icon={<LockKeyhole />} title="No workspaces available" text="Ask your organisation administrator for an invitation." /></div>}
     <div className="mt-12 grid gap-4 md:grid-cols-2">{(memberships ?? []).map(m => <button key={m.id} onClick={() => choose(m.id)} className="persona-card text-left"><span className="persona-icon">{icon(m.kind)}</span><span className="min-w-0 flex-1"><span className="block font-bold">{m.label} · {String(m.role).replace("_", " ")}</span><span className="mt-1 block text-sm leading-6 text-[#6b7872]">{blurb[m.role]}</span></span>{busy === m.id ? <Clock3 className="animate-spin" size={18} /> : <ChevronRight size={18} />}</button>)}</div>
-    <p className="mt-7 text-center text-xs leading-5 text-[#7b8881]">Demo limitation: Azentio Entra ID SSO is not connected; demo tenants are provisioned to signed-in users and staff roles are allow-listed.</p></div></main>;
+    <p className="mt-7 text-center"><button onClick={async () => { await api("/api/auth", { method: "DELETE" }); await api("/api/session", { method: "DELETE" }); router.push("/signin"); }} className="text-sm font-semibold text-[#5d42e6]">Sign out</button></p><p className="mt-3 text-center text-xs leading-5 text-[#7b8881]">Demo limitation: Azentio Entra ID SSO is not connected; demo tenants are provisioned to signed-in users and staff roles are allow-listed.</p></div></main>;
 }
 
 
@@ -221,6 +222,17 @@ function Ideas() {
       <section><div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold">Tracked work</h2><span className="text-sm text-[#748179]">{rows.length} ideas</span></div>{rows.length ? <div className="space-y-3">{rows.map(r => <article className="surface p-5" key={r.id}><div className="flex flex-wrap items-start justify-between gap-3"><div><span className="text-xs font-bold text-[#7a8780]">{r.id}</span><h3 className="mt-1 text-lg font-bold">{r.title}</h3></div><span className="status violet">{r.status}</span></div><p className="mt-3 text-sm leading-6 text-[#68766f]">{r.problemStatement}</p><div className="mt-5 grid gap-3 border-t border-[#e3e8e4] pt-4 text-xs sm:grid-cols-3"><Fact k="Owner" v={r.owner} /><Fact k="Priority" v={r.priority} /><Fact k="Evidence" v={r.evidenceIds} /></div>
         {(r.updates ?? []).length > 0 && <ul className="mt-4 space-y-1 text-xs text-[#5f6d66]">{r.updates.map((u: Json) => <li key={u.id}><b className="uppercase">{u.audience}</b> · {u.body}</li>)}</ul>}
         {NEXT[r.status]?.length > 0 && <form className="mt-4 grid gap-2 border-t border-[#e3e8e4] pt-4" onSubmit={e => e.preventDefault()}><input name="internalNote" placeholder="Internal note (employees only)" className="rounded-lg border border-[#d5ddd7] px-3 py-2 text-xs" /><input name="clientUpdate" placeholder="Client-visible update (notifies contributors)" className="rounded-lg border border-[#d5ddd7] px-3 py-2 text-xs" /><div className="flex flex-wrap gap-2">{NEXT[r.status].map(s => <button key={s} type="button" onClick={e => advance(r.id, s, new FormData(e.currentTarget.form!))} className="btn-secondary">{s}</button>)}</div></form>}</article>)}</div> : <Empty icon={<Lightbulb />} title="No tracked ideas" text="Load the approved scenario, then create an evidence-linked improvement." />}</section></div></div>;
+}
+
+function SignIn() {
+  const router = useRouter(), [mode, setMode] = useState<"signin" | "signup">("signin"), [error, setError] = useState(""), [busy, setBusy] = useState(false);
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault(); setError(""); setBusy(true); const f = new FormData(e.currentTarget);
+    try { await api("/api/auth", { method: "POST", body: JSON.stringify({ mode, email: f.get("email"), password: f.get("password"), name: f.get("name") ?? undefined }) }); router.push("/login"); } catch (x) { setError((x as Error).message); setBusy(false); }
+  }
+  return <main className="px-5 py-14 md:px-9"><div className="mx-auto max-w-md"><div className="text-center"><Pill icon={<LockKeyhole size={13} />}>Secure access</Pill><h1 className="mt-6 text-4xl font-semibold tracking-[-.05em]">{mode === "signin" ? "Sign in" : "Create an account"}</h1></div>{error && <div className="mt-6"><Alert text={error} /></div>}
+    <form onSubmit={submit} className="surface mt-8 grid gap-4 p-6">{mode === "signup" && <Field label="Name" name="name" value="" />}<Field label="Work email" name="email" type="email" value="" /><Field label="Password (10+ characters)" name="password" type="password" value="" /><button className="btn-primary justify-center" disabled={busy} type="submit">{mode === "signin" ? "Sign in" : "Create account"}</button><button type="button" onClick={() => setMode(mode === "signin" ? "signup" : "signin")} className="text-sm font-semibold text-[#5d42e6]">{mode === "signin" ? "Need an account? Create one" : "Have an account? Sign in"}</button></form>
+    <p className="mt-5 text-center text-xs leading-5 text-[#7b8881]">An account alone grants no access. Workspaces come from memberships, invitations or the staff allow-list.</p></div></main>;
 }
 
 function NotificationBell() {

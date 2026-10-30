@@ -172,3 +172,13 @@ export const teams = sqliteTable("teams", {
 export const teamMembers = sqliteTable("team_members", {
   teamId: text("team_id").notNull(), userId: text("user_id").notNull(), label: text("label").notNull(),
 }, (table) => [uniqueIndex("team_members_idx").on(table.teamId, table.userId)]);
+
+export const credentials = sqliteTable("credentials", {
+  userId: text("user_id").primaryKey(), email: text("email").notNull(), salt: text("salt").notNull(), hash: text("hash").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex("credentials_email_idx").on(table.email)]);
+
+export const authSessions = sqliteTable("auth_sessions", {
+  token: text("token").primaryKey(), userId: text("user_id").notNull(), expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
