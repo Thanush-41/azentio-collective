@@ -10,15 +10,16 @@ import { scanPrivacy } from "@/lib/domain/privacy";
  *   AIRA_LLM_MODEL     model id                    (default claude-haiku-5-5 / gpt-4o-mini)
  *   AIRA_LLM_BASE_URL  OpenAI-compatible base URL  (optional, e.g. a self-hosted or alternative provider)
  *   AIRA_LLM_TIMEOUT_MS                            (default 15000)
+ *   AIRA_LLM_MAX_TOKENS                            (default 1500; reasoning models spend part of it on hidden thinking, so too low truncates the JSON)
  */
-export type LlmConfig = { provider: "anthropic" | "openai"; apiKey: string; model: string; baseUrl?: string; timeoutMs: number };
+export type LlmConfig = { provider: "anthropic" | "openai"; apiKey: string; model: string; baseUrl?: string; timeoutMs: number; maxTokens: number };
 
 export function llmConfigFromEnv(env: Record<string, string | undefined> = process.env): LlmConfig | null {
   const apiKey = env.AIRA_LLM_API_KEY?.trim();
   if (!apiKey) return null;
   const provider = env.AIRA_LLM_PROVIDER === "openai" ? "openai" : "anthropic";
   return { provider, apiKey, model: env.AIRA_LLM_MODEL?.trim() || (provider === "openai" ? "gpt-4o-mini" : "claude-haiku-5-5"),
-    baseUrl: env.AIRA_LLM_BASE_URL?.trim() || undefined, timeoutMs: Number(env.AIRA_LLM_TIMEOUT_MS) || 15000 };
+    baseUrl: env.AIRA_LLM_BASE_URL?.trim() || undefined, timeoutMs: Number(env.AIRA_LLM_TIMEOUT_MS) || 15000, maxTokens: Math.min(4000, Math.max(300, Number(env.AIRA_LLM_MAX_TOKENS) || 1500)) };
 }
 
 async function complete(cfg: LlmConfig, system: string, user: string, signal: AbortSignal): Promise<string> {
@@ -26,7 +27,7 @@ async function complete(cfg: LlmConfig, system: string, user: string, signal: Ab
     const res = await fetch(`${cfg.baseUrl ?? "https://api.anthropic.com"}/v1/messages`, {
       method: "POST", signal,
       headers: { "content-type": "application/json", "x-api-key": cfg.apiKey, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: cfg.model, max_tokens: 600, temperature: 0.2, system, messages: [{ role: "user", content: user }] }),
+      body: JSON.stringify({ model: cfg.model, max_tokens: cfg.maxTokens, temperature: 0.2, system, messages: [{ role: "user", content: user }] }),
     });
     if (!res.ok) throw new Error(`provider_http_${res.status}`);
     const data = await res.json() as { content?: { type: string; text?: string }[] };
@@ -35,7 +36,7 @@ async function complete(cfg: LlmConfig, system: string, user: string, signal: Ab
   const res = await fetch(`${cfg.baseUrl ?? "https://api.openai.com/v1"}/chat/completions`, {
     method: "POST", signal,
     headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}` },
-    body: JSON.stringify({ model: cfg.model, temperature: 0.2, max_tokens: 600, response_format: { type: "json_object" },
+    body: JSON.stringify({ model: cfg.model, temperature: 0.2, max_tokens: cfg.maxTokens, response_format: { type: "json_object" },
       messages: [{ role: "system", content: system }, { role: "user", content: user }] }),
   });
   if (!res.ok) throw new Error(`provider_http_${res.status}`);

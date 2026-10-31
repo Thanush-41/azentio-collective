@@ -168,7 +168,7 @@ describe("AIRA grounded LLM layer", () => {
     vi.stubGlobal("fetch", never);
     expect((await learn.askAira(db, employee, "What seasonality concerns exist?", {})).status).toBe("insufficient_evidence");
     expect(never).not.toHaveBeenCalled();
-    expect(await groundedSynthesis("q", "t", [], { provider: "anthropic", apiKey: "k", model: "m", timeoutMs: 1000 })).toEqual({ ok: false, reason: "no_evidence" });
+    expect(await groundedSynthesis("q", "t", [], { provider: "anthropic", apiKey: "k", model: "m", timeoutMs: 1000, maxTokens: 600 })).toEqual({ ok: false, reason: "no_evidence" });
   });
 });
 
