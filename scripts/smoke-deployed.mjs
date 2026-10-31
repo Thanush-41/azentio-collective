@@ -165,7 +165,8 @@ if (process.env.STAFF_EMAIL && process.env.STAFF_PASSWORD) {
   await harbour.act("add_comment", { publicationId: pubs.northstar, body: "Matches what we see" });
   check("comments readable while published", (await meridian.call(`/api/portal?scope=comments&id=${pubs.northstar}`)).body.comments?.length === 1);
   const rep = await meridian.act("report", { publicationId: pubs.northstar, reason: "smoke-test report" });
-  check("report temporarily unpublishes", rep.status === 201);
+  check("a single report is queued and does not unpublish", rep.status === 201 && rep.body.hidden === false && (await L()).publications.some(x => x.id === pubs.northstar));
+  check("moderator holds the reported publication during review", (await mod.act("resolve_report", { reportId: rep.body.report_id, outcome: "hold" })).status === 200);
   check("comments on a reported publication are inaccessible (404)", (await harbour.call(`/api/portal?scope=comments&id=${pubs.northstar}`)).status === 404);
   check("reported publication leaves shared retrieval", !(await L()).publications.some(x => x.id === pubs.northstar));
   check("moderator restores it", (await mod.act("resolve_report", { reportId: rep.body.report_id, outcome: "restore" })).status === 200);

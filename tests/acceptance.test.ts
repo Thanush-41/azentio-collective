@@ -155,11 +155,17 @@ describe("4. workflow", () => {
     await expect(obs.withdraw(db, meridian, observation_id)).rejects.toMatchObject({ status: 409 });
     await expect(obs.updateObservation(db, meridian, observation_id, obsInput(), false)).rejects.toMatchObject({ status: 409 });
   });
-  it("report temporarily unpublishes; restore re-publishes; material edit requires renewed review and bumps the version", async () => {
+  it("one report queues review; moderator hold unpublishes; restore re-publishes; material edit requires renewed review and bumps the version", async () => {
     const { observation_id, publication_id } = await publishFrom(meridian);
-    await obs.reportPublication(db, northstar, publication_id, "looks identifying");
-    expect((await learn.getLearning(db, employee)).publications).toHaveLength(0);
+    const r1 = await obs.reportPublication(db, northstar, publication_id, "looks identifying");
+    expect(r1).toMatchObject({ hidden: false, status: "published" });
+    expect((await learn.getLearning(db, employee)).publications).toHaveLength(1);
+    await expect(obs.reportPublication(db, northstar, publication_id, "reporting it again")).rejects.toMatchObject({ status: 409 });
     const [report] = await obs.listReports(db, moderator);
+    expect(report.publicationStatus).toBe("published");
+    await rejects403(obs.resolveReport(db, northstar, report.id, "hold"));
+    await obs.resolveReport(db, moderator, report.id, "hold");
+    expect((await learn.getLearning(db, employee)).publications).toHaveLength(0);
     await obs.resolveReport(db, moderator, report.id, "restore");
     expect((await learn.getLearning(db, employee)).publications).toHaveLength(1);
     await obs.updateObservation(db, meridian, observation_id, obsInput({ description: "Materially changed description text." }), true);

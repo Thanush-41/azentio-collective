@@ -1,7 +1,9 @@
 import { and, desc, eq } from "drizzle-orm";
 import { consents, contentItems, entitlements, observations, products, publications, themeEvidence, themes } from "@/db/schema";
-import { answerQuestion, MIN_ORGANISATIONS, type EvidencePub } from "@/lib/domain/aira";
+import { answerQuestion, MIN_ORGANISATIONS, type AiraAnswer, type EvidencePub, type GroundingEvidence } from "@/lib/domain/aira";
+import { scanPrivacy } from "@/lib/domain/privacy";
 import { kindOf } from "@/lib/domain/rbac";
+import { groundedSynthesis } from "./aira-llm";
 import { ApiError, POLICY_VERSION, type Actor, type Db, type Stmt, auditStmt, now, requirePermission, runBatch, uid } from "./core";
 
 /** Drops the organisation id so it never reaches a shared payload. */
@@ -41,9 +43,14 @@ export async function getLearning(db: Db, actor: Actor, filters: Filters = {}) {
     return [{ id: t.id, title: t.title, offering: t.offering, topic: t.topic, summary: t.summary, supporting_publications: evidence.map(p => p.id), distinct_organizations: orgs,
       confidence: "Limited synthetic sample", warning: "Small sample — directional evidence, not market prevalence.", suggested_improvement: t.suggestedImprovement }];
   });
-  const publicationsOut = pubs.map(p => ({ ...strip(p), themeIds: themeOf.get(p.id) ?? [] }));
-  return { publications: publicationsOut, themes: visible, theme: visible[0] ?? null, suppressed: visible.length === 0, suppressedThemes: suppressed,
-    distinctOrganizations: visible[0]?.distinct_organizations ?? new Set(pubs.map(p => p.orgId)).size, filters };
+  // Differencing safeguard: a filtered view that narrows the feed to fewer than three contributing organisations returns no
+  // publications, so narrow filter combinations cannot be used to isolate one organisation's contributions. The unfiltered
+  // feed lists every approved, individually reviewed shared copy; organisation counts are never returned below the threshold.
+  const filtered = Object.values(filters).some(v => typeof v === "string" && v.trim() !== "");
+  const publicationsSuppressed = filtered && pubs.length > 0 && new Set(pubs.map(p => p.orgId)).size < MIN_ORGANISATIONS;
+  const publicationsOut = publicationsSuppressed ? [] : pubs.map(p => ({ ...strip(p), themeIds: themeOf.get(p.id) ?? [] }));
+  return { publications: publicationsOut, publicationsSuppressed, themes: visible, theme: visible[0] ?? null, suppressed: visible.length === 0, suppressedThemes: suppressed,
+    distinctOrganizations: visible[0]?.distinct_organizations ?? null, filters };
 }
 
 export async function askAira(db: Db, actor: Actor, question: string, filters: Filters) {
@@ -57,8 +64,19 @@ export async function askAira(db: Db, actor: Actor, question: string, filters: F
   const valid = new Set(pubs.map(p => p.id));
   const references = answer.references.filter(r => valid.has(r));
   if (answer.status === "answered" && references.length !== answer.references.length) throw new ApiError("Reference validation failed", 500);
-  await runBatch(db, [auditStmt(db, actor.userId, "aira_query", answer.status, question.slice(0, 120))]);
-  return { ...answer, references, evidence: pubs.filter(p => references.includes(p.id)).map(strip) };
+  let result: AiraAnswer = { ...answer, references } as AiraAnswer;
+  if (answer.status === "answered") {
+    // The threshold and theme scoping above are the authorisation gate; the LLM only rewrites within the already-permitted evidence.
+    const grounding: GroundingEvidence[] = pubs.filter(p => references.includes(p.id)).map(p => ({ id: p.id, approvedText: p.approvedText, offering: p.offering,
+      industry: p.industry, region: p.region, observationPeriod: p.observationPeriod }));
+    const llm = await groundedSynthesis(question, answer.theme.title, grounding);
+    result = llm.ok
+      ? { ...answer, mode: "llm_grounded", answer: llm.answer, references: llm.citations, limitations: llm.limitations }
+      : { ...answer, references, limitations: "Small synthetic sample; directional evidence only.", fallbackReason: llm.reason };
+  }
+  await runBatch(db, [auditStmt(db, actor.userId, "aira_query", result.status, `[${result.mode}] ${question.slice(0, 110)}`)]);
+  const cited: string[] = result.references;
+  return { ...result, evidence: pubs.filter(p => cited.includes(p.id)).map(strip) };
 }
 
 export async function listEntitlements(db: Db, actor: Actor) {
@@ -86,6 +104,43 @@ export async function setEntitlement(db: Db, actor: Actor, orgId: string, produc
   await runBatch(db, [db.insert(entitlements).values({ id, orgId, productId, status: enabled ? "enabled" : "disabled" })
     .onConflictDoUpdate({ target: entitlements.id, set: { status: enabled ? "enabled" : "disabled" } }), auditStmt(db, actor.userId, "set_entitlement", id, enabled ? "enabled" : "disabled")]);
   return { id, status: enabled ? "enabled" : "disabled" };
+}
+
+/**
+ * Moderation-first variant of the judging scenario: three synthetic organisations submit community proposals that land in the
+ * moderation queue (nothing is published). One deliberately contains a fake account number and a precise date so the privacy scan
+ * fires and the moderator must redact before publishing. Idempotent per organisation while a synthetic proposal is pending.
+ */
+const MODERATION_SEEDS = [
+  ["org-meridian", "Seasonal SME cash flow is often read as volatility",
+    "Our relationship managers see seasonal SME borrowers flagged as volatile when festival-quarter revenue is compared with the previous quarter. Example: account 4521 8890 1123 on 14 Aug 2026 was escalated although its seasonal pattern was normal."],
+  ["org-northstar", "Agricultural cycles need aligned period comparisons",
+    "Agri-linked SME clients show sharp swings between sowing and harvest quarters. Analysts compare against the previous quarter rather than the same season last year, which overstates risk."],
+  ["org-harbour", "Seasonal retailers need like-for-like explanations",
+    "Seasonal retailers ask why their analysis looks weaker after peak season. A like-for-like seasonal comparison and a plain-language explanation would reduce disputes."],
+] as const;
+
+export async function seedModerationScenario(db: Db, actor: Actor) {
+  requirePermission(actor, "demo:seed");
+  const themeId = "THM-SEASONALITY";
+  const stmts: Stmt[] = [db.insert(themes).values({ id: themeId, title: "Seasonality context", topic: "seasonal SME cash-flow analysis", offering: "Financial Analysis Intelligence",
+    summary: "Approved contributions describe inconsistent interpretation of seasonal SME cash flows.", suggestedImprovement: "Add a seasonality-aware comparison explanation.", createdBy: "system" }).onConflictDoNothing()];
+  const pending = await db.select({ orgId: observations.orgId, authorId: observations.authorId }).from(observations).where(eq(observations.status, "submitted"));
+  const created: string[] = [];
+  for (const [orgId, title, description] of MODERATION_SEEDS) {
+    if (pending.some(p => p.orgId === orgId && p.authorId.startsWith("synthetic-"))) continue;
+    const obsId = uid("OBS"), author = `synthetic-${orgId}`;
+    created.push(obsId);
+    stmts.push(
+      db.insert(observations).values({ id: obsId, orgId, authorId: author, offering: "Financial Analysis Intelligence", title, industry: "Banking", region: "India",
+        observationPeriod: "2026-Q3", evidenceType: "Synthetic market observation", confidence: "Medium", description, sharingIntent: "propose_community",
+        privacyFlags: scanPrivacy(title, description).join("; "), status: "submitted", updatedAt: now() }),
+      db.insert(consents).values([{ id: uid("CON"), observationId: obsId, type: "processing", state: "granted", policyVersion: POLICY_VERSION, actorId: author },
+        { id: uid("CON"), observationId: obsId, type: "community_sharing", state: "granted", policyVersion: POLICY_VERSION, actorId: author }]));
+  }
+  stmts.push(auditStmt(db, actor.userId, "seed_moderation_scenario", themeId, `${created.length} synthetic proposals queued for moderation`));
+  await runBatch(db, stmts);
+  return { status: "queued", created: created.length, observations: created };
 }
 
 const SEEDS = [

@@ -78,6 +78,9 @@ describe("QA-09 / QA-10", () => {
     await adm.addComment(db, meridian, pub.id, "Matches what we see");
     expect(await adm.listComments(db, northstar, pub.id)).toHaveLength(1);
     await obs.reportPublication(db, northstar, pub.id, "looks identifying");
+    expect(await adm.listComments(db, northstar, pub.id)).toHaveLength(1); // a single report does not unpublish
+    const [report] = await obs.listReports(db, moderator);
+    await obs.resolveReport(db, moderator, report.id, "hold");
     await expect(adm.listComments(db, northstar, pub.id)).rejects.toSatisfy(e => code(e) === 404);
     await expect(adm.addComment(db, northstar, pub.id, "more")).rejects.toSatisfy(e => code(e) === 404);
   });
