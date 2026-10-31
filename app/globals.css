@@ -10,7 +10,7 @@ button, a, input, select, textarea { transition: .2s ease; }
 button { cursor: pointer; }
 a { text-decoration: none; }
 .hero-grid { background-image: linear-gradient(rgba(42,75,61,.055) 1px, transparent 1px), linear-gradient(90deg, rgba(42,75,61,.055) 1px, transparent 1px), radial-gradient(circle at 84% 20%, rgba(180,242,217,.42), transparent 27%), radial-gradient(circle at 15% 90%, rgba(207,197,255,.32), transparent 26%); background-size: 44px 44px, 44px 44px, auto, auto; mask-image: linear-gradient(to bottom, black, transparent 95%); }
-.btn-primary, .btn-secondary { min-height: 42px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; font-size: 14px; font-weight: 750; border: 1px solid transparent; }
+.btn-primary, .btn-secondary { white-space: nowrap; min-height: 42px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; font-size: 14px; font-weight: 750; border: 1px solid transparent; }
 .btn-primary { color: white; background: #173c30; box-shadow: 0 7px 18px rgba(20,60,46,.13); }
 .btn-primary:hover { background: #0f3026; transform: translateY(-1px); }
 .btn-secondary { color: #263a32; background: rgba(255,255,255,.82); border-color: #d3ddd6; }
@@ -38,3 +38,23 @@ a { text-decoration: none; }
 .queue-item { width: 100%; border: 1px solid transparent; border-radius: 13px; padding: 13px; text-align: left; }.queue-item:hover { background: #f3f6f3; }.queue-item.active { background: #edf5f1; border-color: #cce1d6; }
 @media (max-width: 600px) { .surface { border-radius: 18px; } .product-card { min-height: auto; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
+
+/* Polish: visible keyboard focus, skip link, calmer motion, nicer scrolling and selection */
+:focus-visible { outline: 2px solid #5d42e6; outline-offset: 2px; border-radius: 8px; }
+#content:focus { outline: none; }
+.skip-link { position: absolute; left: 12px; top: -48px; z-index: 100; background: #173c30; color: white; padding: 10px 14px; border-radius: 10px; font-weight: 700; font-size: 14px; }
+.skip-link:focus { top: 10px; }
+::selection { background: #cfeee1; color: #0f3026; }
+h1, h2, h3 { text-wrap: balance; }
+p { text-wrap: pretty; }
+.surface { transition: box-shadow .2s ease, transform .2s ease, border-color .2s ease; }
+.surface:is(a, button):hover, a.surface:hover { transform: translateY(-2px); box-shadow: 0 16px 40px rgba(29,55,44,.09); border-color: #c5d3c9; }
+.btn-primary:active, .btn-secondary:active { transform: translateY(0) scale(.98); }
+.btn-primary:disabled, .btn-secondary:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+.field input::placeholder, .field textarea::placeholder { color: #9aa7a0; }
+.field input:hover, .field select:hover, .field textarea:hover { border-color: #b9c9be; }
+table { border-collapse: collapse; }
+tbody tr:hover { background: #f6f9f6; }
+@keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+.skeleton { background: linear-gradient(90deg, #eef2ee 25%, #f7faf7 37%, #eef2ee 63%); background-size: 800px 100%; animation: shimmer 1.4s infinite linear; border-radius: 12px; }
+@media (max-width: 600px) { h1 { word-break: break-word; } }
